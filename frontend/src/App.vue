@@ -15,6 +15,12 @@ let frameInterval = null;
 let latestImageBase64 = null;
 let speechRecognition = null;
 
+// 大模型配置
+const apiKey = ref('');
+const baseUrl = ref('https://ark.cn-beijing.volces.com/api/v3');
+const modelName = ref('ep-xxxxxxxx-xxxx');
+const showSettings = ref(false);
+
 // 初始化 WebSocket
 const initWebSocket = () => {
   ws.value = new WebSocket('ws://localhost:8080/ws/chat');
@@ -67,7 +73,10 @@ const sendMessage = (text) => {
       event: 'user_input',
       text: text,
       imageBase64: latestImageBase64,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      apiKey: apiKey.value,
+      baseUrl: baseUrl.value,
+      modelName: modelName.value
     }));
   }
 };
@@ -198,6 +207,27 @@ onUnmounted(() => {
     <div class="status-orb-container">
       <div class="status-orb" :class="status"></div>
       <div class="status-text">{{ status === 'idle' ? '未激活' : status === 'listening' ? '倾听中...' : status === 'speaking' ? '接收中...' : status === 'thinking' ? '思考中...' : '表达中' }}</div>
+    </div>
+
+    <!-- 左侧顶部：设置按钮与面板 -->
+    <button class="settings-toggle glass-panel" @click="showSettings = !showSettings">
+      ⚙️ 配置模型
+    </button>
+    <div v-if="showSettings" class="settings-panel glass-panel">
+      <h3>大模型 API 配置 (OpenAI 兼容)</h3>
+      <div class="input-group">
+        <label>Base URL</label>
+        <input v-model="baseUrl" type="text" placeholder="https://api.openai.com/v1" />
+      </div>
+      <div class="input-group">
+        <label>API Key</label>
+        <input v-model="apiKey" type="password" placeholder="sk-..." />
+      </div>
+      <div class="input-group">
+        <label>Model Name (Endpoint)</label>
+        <input v-model="modelName" type="text" placeholder="gpt-4o / ep-..." />
+      </div>
+      <p class="hint">请确保使用的模型支持多模态（Vision）功能</p>
     </div>
 
     <!-- 主视觉区：摄像头 -->
@@ -453,5 +483,65 @@ button.active {
   background: rgba(0, 210, 255, 0.3);
   border-color: #00d2ff;
   box-shadow: 0 0 15px rgba(0, 210, 255, 0.4);
+}
+
+/* 设置面板 */
+.settings-toggle {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 20;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+}
+
+.settings-panel {
+  position: absolute;
+  top: 70px;
+  left: 20px;
+  z-index: 20;
+  padding: 20px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.settings-panel h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding-bottom: 10px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.input-group label {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.input-group input {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  outline: none;
+}
+
+.input-group input:focus {
+  border-color: #00d2ff;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
 }
 </style>

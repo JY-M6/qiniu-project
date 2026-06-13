@@ -60,8 +60,8 @@ public class VisionChatWebSocketHandler extends TextWebSocketHandler {
                 String text = clientMessage.getText() != null ? clientMessage.getText() : "";
                 context.addUserInput(text);
 
-                // 调用大模型服务 (传递最新1帧图片和上下文)
-                String response = llmService.generateResponse(clientMessage.getImageBase64(), text, context);
+                // 调用大模型服务 (传递客户端配置和上下文)
+                String response = llmService.generateResponse(clientMessage, context);
                 
                 // 更新上下文
                 context.updateAiResponse(response);

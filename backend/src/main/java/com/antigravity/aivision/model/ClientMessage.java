@@ -8,4 +8,9 @@ public class ClientMessage {
     private String text; // 用户说的文本
     private String imageBase64; // 最新的1帧图片
     private long timestamp;
+    
+    // 动态大模型配置
+    private String apiKey;
+    private String baseUrl;
+    private String modelName;
 }
