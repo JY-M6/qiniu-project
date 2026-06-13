@@ -76,8 +76,17 @@ public class LLMService {
 
             String jsonPayload = objectMapper.writeValueAsString(requestBody);
 
+            String targetUrl = baseUrl.trim();
+            if (!targetUrl.endsWith("/chat/completions")) {
+                if (targetUrl.endsWith("/")) {
+                    targetUrl += "chat/completions";
+                } else {
+                    targetUrl += "/chat/completions";
+                }
+            }
+
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions"))
+                    .uri(URI.create(targetUrl))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
@@ -123,8 +132,17 @@ public class LLMService {
 
             String jsonPayload = objectMapper.writeValueAsString(requestBody);
 
+            String targetUrl = baseUrl.trim();
+            if (!targetUrl.endsWith("/chat/completions")) {
+                if (targetUrl.endsWith("/")) {
+                    targetUrl += "chat/completions";
+                } else {
+                    targetUrl += "/chat/completions";
+                }
+            }
+
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions"))
+                    .uri(URI.create(targetUrl))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))

@@ -19,7 +19,7 @@ let speechRecognition = null;
 
 // 大模型配置
 const apiKey = ref('');
-const baseUrl = ref('https://ark.cn-beijing.volces.com/api/v3');
+const baseUrl = ref('');
 const modelName = ref('');
 const showSettings = ref(false);
 const activeModelName = ref('');
