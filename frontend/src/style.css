@@ -1,0 +1,11 @@
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #1a1a2e; /* 默认深色底，App.vue 里面有渐变背景覆盖 */
+  overflow: hidden; /* 防止出现滚动条 */
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+}
