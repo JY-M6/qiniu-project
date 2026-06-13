@@ -102,4 +102,48 @@ public class LLMService {
             return "调用大模型时发生内部错误：" + e.getMessage();
         }
     }
+
+    public String validateConfiguration(ClientMessage clientMessage) {
+        String apiKey = clientMessage.getApiKey();
+        String baseUrl = clientMessage.getBaseUrl();
+        String modelName = clientMessage.getModelName();
+
+        if (apiKey == null || apiKey.trim().isEmpty()) return "API_INVALID:API Key 不能为空";
+        if (baseUrl == null || baseUrl.trim().isEmpty()) return "URL_INVALID:Base URL 不能为空";
+        if (modelName == null || modelName.trim().isEmpty()) return "MODEL_INVALID:模型名称不能为空";
+
+        try {
+            ObjectNode requestBody = objectMapper.createObjectNode();
+            requestBody.put("model", modelName);
+            requestBody.put("max_tokens", 1);
+            ArrayNode messagesArray = requestBody.putArray("messages");
+            ObjectNode testMsg = messagesArray.addObject();
+            testMsg.put("role", "user");
+            testMsg.put("content", "hi");
+
+            String jsonPayload = objectMapper.writeValueAsString(requestBody);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions"))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            int statusCode = response.statusCode();
+
+            if (statusCode == 200) {
+                return "SUCCESS";
+            } else if (statusCode == 401 || statusCode == 403) {
+                return "API_INVALID:API Key 无效或无权限";
+            } else if (statusCode == 404) {
+                return "MODEL_INVALID:模型接入点不存在或 URL 错误";
+            } else {
+                return "URL_INVALID:网络或服务异常 (HTTP " + statusCode + ")";
+            }
+        } catch (Exception e) {
+            return "URL_INVALID:连接失败，请检查网络或 URL 格式";
+        }
+    }
 }

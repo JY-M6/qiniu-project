@@ -53,6 +53,17 @@ public class VisionChatWebSocketHandler extends TextWebSocketHandler {
 
         executorService.submit(() -> {
             try {
+                if ("validate_config".equals(clientMessage.getEvent())) {
+                    String validationResult = llmService.validateConfiguration(clientMessage);
+                    if ("SUCCESS".equals(validationResult)) {
+                        sendMessage(session, ServerMessage.builder().status("validation_success").text("配置验证成功").build());
+                    } else {
+                        // validationResult format: "ERROR_TYPE:Error Message"
+                        sendMessage(session, ServerMessage.builder().status("validation_error").text(validationResult).build());
+                    }
+                    return; // 验证请求处理完毕
+                }
+
                 // 发送 "思考中" 状态
                 sendMessage(session, ServerMessage.builder().status("processing").build());
 

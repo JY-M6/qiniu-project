@@ -7,6 +7,8 @@ const chatListRef = ref(null);
 
 const isMicOn = ref(false);
 const isCamOn = ref(false);
+const isConversationActive = ref(false);
+
 const status = ref('idle'); // idle, listening, speaking, thinking, expressing
 const chatHistory = ref([]);
 const ws = ref(null);
@@ -18,30 +20,51 @@ let speechRecognition = null;
 // 大模型配置
 const apiKey = ref('');
 const baseUrl = ref('https://ark.cn-beijing.volces.com/api/v3');
-const modelName = ref('ep-xxxxxxxx-xxxx');
+const modelName = ref('');
 const showSettings = ref(false);
+const activeModelName = ref('');
 
-// 初始化 WebSocket
+// 错误状态
+const apiError = ref('');
+const urlError = ref('');
+const modelError = ref('');
+
+// 初始化 WebSocket (仅连接，不自动开启对话硬件)
 const initWebSocket = () => {
+  if (ws.value && ws.value.readyState !== WebSocket.CLOSED) return;
+
   ws.value = new WebSocket('ws://localhost:8080/ws/chat');
   
   ws.value.onopen = () => {
     console.log('WebSocket Connected');
-    chatHistory.value.push({ role: 'system', text: '连接已建立。' });
   };
   
   ws.value.onmessage = (event) => {
     const data = JSON.parse(event.data);
-    if (data.status === 'processing') {
+    
+    // 拦截验证消息
+    if (data.status === 'validation_success') {
+      alert('配置成功！');
+      activeModelName.value = modelName.value;
+      showSettings.value = false;
+    } else if (data.status === 'validation_error') {
+      // 格式: ERROR_TYPE:ErrorMessage
+      const [type, msg] = data.text.split(':');
+      if (type === 'API_INVALID') apiError.value = msg;
+      else if (type === 'URL_INVALID') urlError.value = msg;
+      else if (type === 'MODEL_INVALID') modelError.value = msg;
+      else alert(data.text);
+    }
+    // 拦截常规对话状态
+    else if (data.status === 'processing') {
       status.value = 'thinking';
     } else if (data.status === 'completed') {
       status.value = 'expressing';
       chatHistory.value.push({ role: 'ai', text: data.text });
       scrollToBottom();
       
-      // 模拟表达完成恢复倾听状态
       setTimeout(() => {
-        if (isMicOn.value) status.value = 'listening';
+        if (isConversationActive.value) status.value = 'listening';
         else status.value = 'idle';
       }, 2000);
     } else if (data.status === 'error') {
@@ -52,7 +75,10 @@ const initWebSocket = () => {
 
   ws.value.onclose = () => {
     console.log('WebSocket Disconnected');
-    chatHistory.value.push({ role: 'system', text: '连接已断开。' });
+    if (isConversationActive.value) {
+      chatHistory.value.push({ role: 'system', text: '连接已断开，会话结束。' });
+      stopConversation();
+    }
   };
 };
 
@@ -63,7 +89,7 @@ const scrollToBottom = async () => {
   }
 };
 
-// 发送消息到后端
+// 发送常规对话消息
 const sendMessage = (text) => {
   if (ws.value && ws.value.readyState === WebSocket.OPEN) {
     chatHistory.value.push({ role: 'user', text: text });
@@ -81,51 +107,77 @@ const sendMessage = (text) => {
   }
 };
 
-// 开启摄像头
-const toggleCamera = async () => {
-  if (isCamOn.value) {
-    // 关闭摄像头
-    if (mediaStream) {
-      mediaStream.getVideoTracks().forEach(track => track.stop());
-    }
-    if (frameInterval) clearInterval(frameInterval);
-    isCamOn.value = false;
-  } else {
-    // 开启摄像头
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      mediaStream = stream;
-      if (videoRef.value) {
-        videoRef.value.srcObject = stream;
-      }
-      isCamOn.value = true;
-      
-      // 1fps 抽帧
-      frameInterval = setInterval(() => {
-        captureFrame();
-      }, 1000);
-    } catch (err) {
-      console.error('Camera error:', err);
-      alert('无法访问摄像头');
-    }
+// 验证配置
+const validateConfig = () => {
+  // 清空错误
+  apiError.value = '';
+  urlError.value = '';
+  modelError.value = '';
+
+  if (!apiKey.value) { apiError.value = "API Key 不能为空"; return; }
+  if (!baseUrl.value) { urlError.value = "Base URL 不能为空"; return; }
+  if (!modelName.value) { modelError.value = "模型名称不能为空"; return; }
+
+  // 确保 socket 已连
+  if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
+    initWebSocket();
+    setTimeout(validateConfig, 500); // 简单重试机制等连接好
+    return;
   }
+
+  ws.value.send(JSON.stringify({
+    event: 'validate_config',
+    apiKey: apiKey.value,
+    baseUrl: baseUrl.value,
+    modelName: modelName.value
+  }));
+};
+
+const clearConfig = () => {
+  apiKey.value = '';
+  baseUrl.value = '';
+  modelName.value = '';
+  activeModelName.value = '';
+  apiError.value = '';
+  urlError.value = '';
+  modelError.value = '';
+};
+
+// 开启硬件：摄像头
+const startCamera = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    mediaStream = stream;
+    if (videoRef.value) videoRef.value.srcObject = stream;
+    isCamOn.value = true;
+    
+    frameInterval = setInterval(captureFrame, 1000);
+  } catch (err) {
+    console.error('Camera error:', err);
+    alert('无法访问摄像头');
+  }
+};
+
+// 关闭硬件：摄像头
+const stopCamera = () => {
+  if (mediaStream) mediaStream.getVideoTracks().forEach(track => track.stop());
+  if (frameInterval) clearInterval(frameInterval);
+  isCamOn.value = false;
 };
 
 // 抽取视频帧
 const captureFrame = () => {
-  if (videoRef.value && canvasRef.value) {
+  if (videoRef.value && canvasRef.value && isCamOn.value) {
     const context = canvasRef.value.getContext('2d');
-    // 设置较低分辨率以节省带宽
     canvasRef.value.width = 320;
     canvasRef.value.height = 240;
     context.drawImage(videoRef.value, 0, 0, 320, 240);
-    // 获取无前缀的 base64
     const dataUrl = canvasRef.value.toDataURL('image/jpeg', 0.7);
     latestImageBase64 = dataUrl.split(',')[1];
   }
 };
 
-// 初始化本地语音识别 (Web Speech API)
+// 初始化麦克风 (Web Speech API)
 const initSpeechRecognition = () => {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -135,57 +187,68 @@ const initSpeechRecognition = () => {
   
   speechRecognition = new SpeechRecognition();
   speechRecognition.continuous = true;
-  speechRecognition.interimResults = false; // 只获取最终结果
+  speechRecognition.interimResults = false;
   speechRecognition.lang = 'zh-CN';
 
   speechRecognition.onstart = () => {
-    console.log('Speech recognition started');
     status.value = 'listening';
   };
 
   speechRecognition.onresult = (event) => {
-    status.value = 'speaking'; // 正在说话时的波动效果
-    
+    status.value = 'speaking';
     const lastResultIndex = event.results.length - 1;
     const text = event.results[lastResultIndex][0].transcript;
     
-    console.log('识别到文本: ', text);
     if (text.trim()) {
       sendMessage(text);
     }
     
-    // 恢复倾听状态
     setTimeout(() => {
-      if (status.value === 'speaking') {
-        status.value = 'listening';
-      }
+      if (status.value === 'speaking') status.value = 'listening';
     }, 500);
   };
 
   speechRecognition.onend = () => {
-    // 自动重启以保持监听
-    if (isMicOn.value) {
-      try {
-         speechRecognition.start();
-      } catch(e){}
+    if (isMicOn.value && isConversationActive.value) {
+      try { speechRecognition.start(); } catch(e){}
     }
   };
 };
 
-const toggleMic = () => {
-  if (isMicOn.value) {
-    if (speechRecognition) speechRecognition.stop();
-    isMicOn.value = false;
-    status.value = 'idle';
-  } else {
-    if (!speechRecognition) initSpeechRecognition();
-    if (speechRecognition) {
-      try {
-        speechRecognition.start();
-      } catch(e) {}
-    }
-    isMicOn.value = true;
+const startMic = () => {
+  if (!speechRecognition) initSpeechRecognition();
+  if (speechRecognition) {
+    try { speechRecognition.start(); } catch(e) {}
   }
+  isMicOn.value = true;
+};
+
+const stopMic = () => {
+  if (speechRecognition) speechRecognition.stop();
+  isMicOn.value = false;
+};
+
+// 统管会话
+const startConversation = () => {
+  if (!activeModelName.value) {
+    alert("请先在左上角配置大模型！");
+    showSettings.value = true;
+    return;
+  }
+  isConversationActive.value = true;
+  chatHistory.value.push({ role: 'system', text: '对话已开始。' });
+  if (!ws.value || ws.value.readyState !== WebSocket.OPEN) initWebSocket();
+  startCamera();
+  startMic();
+  status.value = 'listening';
+};
+
+const stopConversation = () => {
+  isConversationActive.value = false;
+  status.value = 'idle';
+  stopCamera();
+  stopMic();
+  chatHistory.value.push({ role: 'system', text: '对话已结束。' });
 };
 
 onMounted(() => {
@@ -194,15 +257,18 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (ws.value) ws.value.close();
-  if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
-  if (frameInterval) clearInterval(frameInterval);
-  if (speechRecognition) speechRecognition.stop();
+  stopConversation();
 });
 
 </script>
 
 <template>
   <div class="app-container">
+    <!-- 当前激活模型显示 -->
+    <div class="active-model-display" v-if="activeModelName">
+      <span class="dot green"></span> 当前模型: {{ activeModelName }}
+    </div>
+
     <!-- 状态指示器 (AI 核心) -->
     <div class="status-orb-container">
       <div class="status-orb" :class="status"></div>
@@ -211,23 +277,42 @@ onUnmounted(() => {
 
     <!-- 左侧顶部：设置按钮与面板 -->
     <button class="settings-toggle glass-panel" @click="showSettings = !showSettings">
-      ⚙️ 配置模型
+      ⚙️ 配置大模型
     </button>
+    
     <div v-if="showSettings" class="settings-panel glass-panel">
-      <h3>大模型 API 配置 (OpenAI 兼容)</h3>
+      <h3>大模型 API 配置</h3>
+      
       <div class="input-group">
-        <label>Base URL</label>
-        <input v-model="baseUrl" type="text" placeholder="https://api.openai.com/v1" />
+        <label>
+          Base URL 
+          <span v-if="urlError" class="error-msg">{{ urlError }}</span>
+        </label>
+        <input v-model="baseUrl" type="text" :class="{ 'input-error': urlError }" placeholder="https://api.openai.com/v1" />
       </div>
+      
       <div class="input-group">
-        <label>API Key</label>
-        <input v-model="apiKey" type="password" placeholder="sk-..." />
+        <label>
+          API Key 
+          <span v-if="apiError" class="error-msg">{{ apiError }}</span>
+        </label>
+        <input v-model="apiKey" type="password" :class="{ 'input-error': apiError }" placeholder="sk-..." />
       </div>
+      
       <div class="input-group">
-        <label>Model Name (Endpoint)</label>
-        <input v-model="modelName" type="text" placeholder="gpt-4o / ep-..." />
+        <label>
+          模型名称 / 接入点 
+          <span v-if="modelError" class="error-msg">{{ modelError }}</span>
+        </label>
+        <input v-model="modelName" type="text" :class="{ 'input-error': modelError }" placeholder="gpt-4o / ep-..." />
       </div>
+      
       <p class="hint">请确保使用的模型支持多模态（Vision）功能</p>
+      
+      <div class="panel-actions">
+        <button class="btn-clear" @click="clearConfig">清空</button>
+        <button class="btn-confirm" @click="validateConfig">确定并验证</button>
+      </div>
     </div>
 
     <!-- 主视觉区：摄像头 -->
@@ -235,7 +320,7 @@ onUnmounted(() => {
       <video ref="videoRef" autoplay playsinline muted class="camera-preview"></video>
       <canvas ref="canvasRef" style="display: none;"></canvas>
       <div v-if="!isCamOn" class="placeholder">
-        <p>摄像头未开启</p>
+        <p>画面未开启</p>
       </div>
     </div>
 
@@ -251,11 +336,11 @@ onUnmounted(() => {
 
     <!-- 底部控制栏 -->
     <div class="control-bar glass-panel">
-      <button @click="toggleCamera" :class="{ active: isCamOn }">
-        {{ isCamOn ? '关闭摄像头' : '开启摄像头' }}
+      <button v-if="!isConversationActive" @click="startConversation" class="btn-start">
+        开始对话
       </button>
-      <button @click="toggleMic" :class="{ active: isMicOn }">
-        {{ isMicOn ? '关闭麦克风' : '开启麦克风' }}
+      <button v-else @click="stopConversation" class="btn-stop">
+        结束对话
       </button>
     </div>
   </div>
@@ -284,6 +369,27 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 24px;
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.active-model-display {
+  position: absolute;
+  top: 25px;
+  right: 25px;
+  font-size: 0.85rem;
+  background: rgba(0,0,0,0.3);
+  padding: 6px 12px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 5;
+}
+.dot.green {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #24fe41;
+  box-shadow: 0 0 8px #24fe41;
 }
 
 /* 状态指示器 (呼吸灯) */
@@ -345,144 +451,18 @@ onUnmounted(() => {
   0%, 100% { transform: scale(1); opacity: 0.8; }
   50% { transform: scale(1.2); opacity: 1; }
 }
-
 @keyframes pulse {
   0% { transform: scale(1); border-radius: 50%; }
   100% { transform: scale(1.5); border-radius: 30%; }
 }
-
 @keyframes spinbreathe {
   0% { transform: rotate(0deg) scale(1); opacity: 0.8; }
   50% { transform: rotate(180deg) scale(1.1); opacity: 1; }
   100% { transform: rotate(360deg) scale(1); opacity: 0.8; }
 }
-
 @keyframes flash {
   0% { opacity: 0.4; }
   100% { opacity: 1; box-shadow: 0 0 40px #24fe41; }
-}
-
-/* 布局区域 */
-.camera-section {
-  flex: 2;
-  margin-right: 20px;
-  margin-bottom: 80px;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.camera-preview {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.placeholder {
-  position: absolute;
-  color: rgba(255,255,255,0.5);
-}
-
-.chat-section {
-  flex: 1;
-  margin-bottom: 80px;
-  display: flex;
-  flex-direction: column;
-  min-width: 300px;
-}
-
-.chat-header {
-  padding: 20px;
-  font-weight: 600;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  text-align: center;
-}
-
-.chat-list {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.chat-list::-webkit-scrollbar {
-  width: 6px;
-}
-.chat-list::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.2);
-  border-radius: 3px;
-}
-
-.chat-bubble {
-  max-width: 80%;
-  padding: 12px 16px;
-  border-radius: 18px;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  animation: slideIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.chat-bubble.user {
-  align-self: flex-end;
-  background: rgba(0, 132, 255, 0.6);
-  border-bottom-right-radius: 4px;
-}
-
-.chat-bubble.ai {
-  align-self: flex-start;
-  background: rgba(255, 255, 255, 0.15);
-  border-bottom-left-radius: 4px;
-}
-
-.chat-bubble.system {
-  align-self: center;
-  background: transparent;
-  font-size: 0.8rem;
-  color: rgba(255,255,255,0.5);
-  text-align: center;
-}
-
-/* 控制栏 */
-.control-bar {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 20px;
-  padding: 15px 30px;
-}
-
-button {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: white;
-  padding: 12px 24px;
-  border-radius: 30px;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-}
-
-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-button.active {
-  background: rgba(0, 210, 255, 0.3);
-  border-color: #00d2ff;
-  box-shadow: 0 0 15px rgba(0, 210, 255, 0.4);
 }
 
 /* 设置面板 */
@@ -501,7 +481,7 @@ button.active {
   left: 20px;
   z-index: 20;
   padding: 20px;
-  width: 320px;
+  width: 340px;
   display: flex;
   flex-direction: column;
   gap: 15px;
@@ -524,6 +504,14 @@ button.active {
 .input-group label {
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  justify-content: space-between;
+}
+
+.error-msg {
+  color: #ff4d4f;
+  font-weight: 600;
+  font-size: 0.75rem;
 }
 
 .input-group input {
@@ -533,15 +521,165 @@ button.active {
   padding: 8px 12px;
   border-radius: 8px;
   outline: none;
+  transition: all 0.3s;
 }
 
 .input-group input:focus {
   border-color: #00d2ff;
 }
 
+.input-group input.input-error {
+  border-color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.1);
+}
+
 .hint {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.5);
   margin: 0;
+}
+
+.panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.btn-clear {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.btn-confirm {
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  background: #00d2ff;
+  color: #0f2027;
+  border: none;
+  font-weight: 600;
+}
+.btn-confirm:hover {
+  background: #3a7bd5;
+  color: white;
+}
+
+/* 布局区域 */
+.camera-section {
+  flex: 2;
+  margin-right: 20px;
+  margin-bottom: 80px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.camera-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.placeholder {
+  position: absolute;
+  color: rgba(255,255,255,0.5);
+}
+
+.chat-section {
+  flex: 1;
+  margin-bottom: 80px;
+  display: flex;
+  flex-direction: column;
+  min-width: 300px;
+}
+.chat-header {
+  padding: 20px;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  text-align: center;
+}
+.chat-list {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.chat-list::-webkit-scrollbar { width: 6px; }
+.chat-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+.chat-bubble {
+  max-width: 80%;
+  padding: 12px 16px;
+  border-radius: 18px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  animation: slideIn 0.3s ease-out;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.chat-bubble.user {
+  align-self: flex-end;
+  background: rgba(0, 132, 255, 0.6);
+  border-bottom-right-radius: 4px;
+}
+.chat-bubble.ai {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.15);
+  border-bottom-left-radius: 4px;
+}
+.chat-bubble.system {
+  align-self: center;
+  background: transparent;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.5);
+  text-align: center;
+}
+
+/* 控制栏 */
+.control-bar {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 20px;
+  padding: 15px 40px;
+}
+button {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+button:hover { background: rgba(255, 255, 255, 0.2); }
+
+.btn-start {
+  background: rgba(36, 254, 65, 0.2);
+  border-color: #24fe41;
+  color: #24fe41;
+}
+.btn-start:hover {
+  background: rgba(36, 254, 65, 0.4);
+}
+
+.btn-stop {
+  background: rgba(255, 77, 79, 0.2);
+  border-color: #ff4d4f;
+  color: #ff4d4f;
+}
+.btn-stop:hover {
+  background: rgba(255, 77, 79, 0.4);
 }
 </style>
