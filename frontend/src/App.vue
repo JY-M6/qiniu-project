@@ -24,6 +24,17 @@ const modelName = ref('qwen-vl-max');
 const showSettings = ref(true); // 默认展开设置面板
 const activeModelName = ref('');
 
+// Toast 通知系统
+const toast = ref({ visible: false, message: '', type: 'success' });
+let toastTimer = null;
+const showToast = (message, type = 'success', duration = 3000) => {
+  if (toastTimer) clearTimeout(toastTimer);
+  toast.value = { visible: true, message, type, duration };
+  toastTimer = setTimeout(() => {
+    toast.value.visible = false;
+  }, duration);
+};
+
 // 厂商和模型映射
 const selectedVendor = ref('dashscope');
 const selectedModelOption = ref('qwen-vl-max');
@@ -113,7 +124,7 @@ const initWebSocket = () => {
     
     // 拦截验证消息
     if (data.status === 'validation_success') {
-      alert('配置成功！');
+      showToast('✅ 配置成功！模型已连接', 'success');
       activeModelName.value = modelName.value;
       showSettings.value = false;
     } else if (data.status === 'validation_error') {
@@ -122,7 +133,7 @@ const initWebSocket = () => {
       if (type === 'API_INVALID') apiError.value = msg;
       else if (type === 'URL_INVALID') urlError.value = msg;
       else if (type === 'MODEL_INVALID') modelError.value = msg;
-      else alert(data.text);
+      else showToast(data.text, 'error');
     }
     // 拦截常规对话状态
     else if (data.status === 'processing') {
@@ -234,7 +245,7 @@ const startCamera = async () => {
     frameInterval = setInterval(captureFrame, 1000);
   } catch (err) {
     console.error('Camera error:', err);
-    alert('无法访问摄像头');
+    showToast('⚠️ 无法访问摄像头', 'warning');
   }
 };
 
@@ -311,7 +322,7 @@ const stopMic = () => {
 // 统管会话
 const startConversation = () => {
   if (!activeModelName.value) {
-    alert("请先在左上角配置大模型！");
+    showToast('⚠️ 请先在左上角配置大模型！', 'warning');
     showSettings.value = true;
     return;
   }
@@ -504,6 +515,20 @@ onUnmounted(() => {
         结束对话
       </button>
     </div>
+
+    <!-- Toast 通知 -->
+    <transition name="toast-slide">
+      <div v-if="toast.visible" :class="['toast-notification', toast.type]" @click="toast.visible = false">
+        <div class="toast-glow"></div>
+        <div class="toast-content">
+          <span class="toast-icon" v-if="toast.type === 'success'">✓</span>
+          <span class="toast-icon" v-else-if="toast.type === 'error'">✕</span>
+          <span class="toast-icon" v-else>⚡</span>
+          <span class="toast-message">{{ toast.message }}</span>
+        </div>
+        <div class="toast-progress" :style="{ animationDuration: toast.duration + 'ms' }"></div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -1255,5 +1280,150 @@ onUnmounted(() => {
 .slide-fade-enter-from, .slide-fade-leave-to {
   transform: translateY(-20px);
   opacity: 0;
+}
+
+/* Toast 通知 */
+.toast-notification {
+  position: fixed;
+  top: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  min-width: 300px;
+  max-width: 480px;
+  padding: 16px 24px 16px 20px;
+  border-radius: 16px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  cursor: pointer;
+  overflow: hidden;
+  font-family: 'Outfit', 'Space Grotesk', sans-serif;
+  animation: toast-entrance 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.toast-notification.success {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.12) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: 0 8px 32px rgba(16, 185, 129, 0.15), 0 0 60px rgba(16, 185, 129, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.toast-notification.error {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(220, 38, 38, 0.12) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  box-shadow: 0 8px 32px rgba(239, 68, 68, 0.15), 0 0 60px rgba(239, 68, 68, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.toast-notification.warning {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.12) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.15), 0 0 60px rgba(245, 158, 11, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.toast-glow {
+  position: absolute;
+  top: -50%;
+  left: -20%;
+  width: 140%;
+  height: 200%;
+  opacity: 0.06;
+  pointer-events: none;
+}
+.toast-notification.success .toast-glow {
+  background: radial-gradient(ellipse, #10b981 0%, transparent 70%);
+}
+.toast-notification.error .toast-glow {
+  background: radial-gradient(ellipse, #ef4444 0%, transparent 70%);
+}
+.toast-notification.warning .toast-glow {
+  background: radial-gradient(ellipse, #f59e0b 0%, transparent 70%);
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+.toast-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.toast-notification.success .toast-icon {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+}
+.toast-notification.error .toast-icon {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+}
+.toast-notification.warning .toast-icon {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+}
+.toast-message {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 0.3px;
+  line-height: 1.4;
+}
+
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 0 0 16px 16px;
+  animation: toast-progress-shrink linear forwards;
+}
+.toast-notification.success .toast-progress {
+  background: linear-gradient(90deg, #10b981, #34d399);
+}
+.toast-notification.error .toast-progress {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+.toast-notification.warning .toast-progress {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+@keyframes toast-entrance {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-30px) scale(0.9);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+@keyframes toast-progress-shrink {
+  0% { width: 100%; }
+  100% { width: 0%; }
+}
+.toast-slide-enter-active {
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.toast-slide-leave-active {
+  transition: all 0.35s cubic-bezier(0.55, 0, 1, 0.45);
+}
+.toast-slide-enter-from {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-30px) scale(0.9);
+  filter: blur(4px);
+}
+.toast-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px) scale(0.95);
+  filter: blur(4px);
 }
 </style>
