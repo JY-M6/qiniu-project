@@ -35,6 +35,9 @@ const showToast = (message, type = 'success', duration = 3000) => {
   }, duration);
 };
 
+// 实时语音识别预览
+const speechPreviewText = ref('');
+
 // 厂商和模型映射
 const selectedVendor = ref('dashscope');
 const selectedModelOption = ref('qwen-vl-max');
@@ -278,30 +281,58 @@ const initSpeechRecognition = () => {
   
   speechRecognition = new SpeechRecognition();
   speechRecognition.continuous = true;
-  speechRecognition.interimResults = false;
+  speechRecognition.interimResults = true;
   speechRecognition.lang = 'zh-CN';
 
   speechRecognition.onstart = () => {
     status.value = 'listening';
+    showToast('🎙️ 麦克风已就绪，请开始说话！', 'success', 2000);
   };
 
   speechRecognition.onresult = (event) => {
-    status.value = 'speaking';
-    const lastResultIndex = event.results.length - 1;
-    const text = event.results[lastResultIndex][0].transcript;
+    let interimTranscript = '';
+    let finalTranscript = '';
     
-    if (text.trim()) {
-      sendMessage(text);
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript;
+      } else {
+        interimTranscript += transcript;
+      }
     }
     
-    setTimeout(() => {
-      if (status.value === 'speaking') status.value = 'listening';
-    }, 500);
+    if (interimTranscript) {
+      status.value = 'speaking';
+      speechPreviewText.value = interimTranscript;
+      scrollToBottom();
+    }
+    
+    if (finalTranscript.trim()) {
+      sendMessage(finalTranscript.trim());
+      speechPreviewText.value = '';
+      status.value = 'thinking';
+    }
+  };
+
+  speechRecognition.onerror = (event) => {
+    console.error('Speech recognition error:', event.error);
+    if (event.error === 'not-allowed') {
+      showToast('❌ 麦克风权限被拒绝，请在浏览器中允许访问麦克风', 'error');
+      isMicOn.value = false;
+      status.value = 'idle';
+    } else if (event.error === 'no-speech') {
+      // 仅无声，不中断
+    } else {
+      showToast(`⚠️ 语音助手提示: ${event.error}`, 'warning', 2000);
+    }
   };
 
   speechRecognition.onend = () => {
     if (isMicOn.value && isConversationActive.value) {
-      try { speechRecognition.start(); } catch(e){}
+      try { 
+        speechRecognition.start(); 
+      } catch(e){}
     }
   };
 };
@@ -309,14 +340,21 @@ const initSpeechRecognition = () => {
 const startMic = () => {
   if (!speechRecognition) initSpeechRecognition();
   if (speechRecognition) {
-    try { speechRecognition.start(); } catch(e) {}
+    try { 
+      speechRecognition.start(); 
+    } catch(e) {}
   }
   isMicOn.value = true;
 };
 
 const stopMic = () => {
-  if (speechRecognition) speechRecognition.stop();
   isMicOn.value = false;
+  if (speechRecognition) {
+    try { 
+      speechRecognition.stop(); 
+    } catch(e) {}
+  }
+  speechPreviewText.value = '';
 };
 
 // 统管会话
@@ -330,8 +368,8 @@ const startConversation = () => {
   chatHistory.value.push({ role: 'system', text: '对话已开始。' });
   if (!ws.value || ws.value.readyState !== WebSocket.OPEN) initWebSocket();
   startCamera();
+  status.value = 'thinking'; // 切换到初始化状态，待 onstart 激活为 listening
   startMic();
-  status.value = 'listening';
 };
 
 const stopConversation = () => {
@@ -408,12 +446,20 @@ onUnmounted(() => {
           <button class="btn-clear-chat" @click="chatHistory = []" v-if="chatHistory.length > 0">清空记录</button>
         </div>
         <div class="chat-list" ref="chatListRef">
-          <div v-if="chatHistory.length === 0" class="chat-empty">
+          <div v-if="chatHistory.length === 0 && !speechPreviewText" class="chat-empty">
             <p>开启会话并对着摄像头说话，或者在下方打字开始交流</p>
           </div>
           <div v-for="(msg, index) in chatHistory" :key="index" :class="['chat-bubble', msg.role]">
             <div class="bubble-sender">{{ msg.role === 'user' ? 'YOU' : msg.role === 'ai' ? 'AURA' : 'SYSTEM' }}</div>
             <div class="bubble-content">{{ msg.text }}</div>
+          </div>
+          <!-- 实时语音输入预览 -->
+          <div v-if="speechPreviewText" class="chat-bubble user interim-bubble">
+            <div class="bubble-sender">🎙️ YOU (正在说话...)</div>
+            <div class="bubble-content">
+              {{ speechPreviewText }}
+              <span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>
+            </div>
           </div>
         </div>
         
@@ -1012,6 +1058,33 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-bottom-left-radius: 4px;
+}
+
+.chat-bubble.interim-bubble {
+  opacity: 0.85;
+  border-style: dashed;
+  border-color: rgba(0, 210, 255, 0.4);
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.1);
+  animation: pulse-glow-border 1.5s infinite alternate ease-in-out;
+}
+@keyframes pulse-glow-border {
+  0% { border-color: rgba(0, 210, 255, 0.2); }
+  100% { border-color: rgba(0, 210, 255, 0.6); }
+}
+.typing-dots span {
+  animation: blink 1.4s infinite both;
+  font-weight: bold;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: .2s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: .4s;
+}
+@keyframes blink {
+  0% { opacity: .2; }
+  20% { opacity: 1; }
+  100% { opacity: .2; }
 }
 
 /* 输入框 */
