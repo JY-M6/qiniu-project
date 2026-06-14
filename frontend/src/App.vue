@@ -19,10 +19,79 @@ let speechRecognition = null;
 
 // 大模型配置
 const apiKey = ref('');
-const baseUrl = ref('');
-const modelName = ref('');
+const baseUrl = ref('https://dashscope.aliyuncs.com/compatible-mode/v1');
+const modelName = ref('qwen-vl-max');
 const showSettings = ref(true); // 默认展开设置面板
 const activeModelName = ref('');
+
+// 厂商和模型映射
+const selectedVendor = ref('dashscope');
+const selectedModelOption = ref('qwen-vl-max');
+const customModelName = ref('');
+
+const vendors = [
+  { id: 'dashscope', name: '阿里百炼 (DashScope)', defaultUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { id: 'openai', name: 'OpenAI 官方', defaultUrl: 'https://api.openai.com/v1' },
+  { id: 'gemini', name: 'Google Gemini 官方', defaultUrl: 'https://generativelanguage.googleapis.com/' },
+  { id: 'volcengine', name: '火山引擎 (Volcengine)', defaultUrl: 'https://ark.cn-beijing.volces.com/api/v3' },
+  { id: 'custom', name: '自定义配置', defaultUrl: '' }
+];
+
+const vendorModels = {
+  dashscope: [
+    { value: 'qwen-vl-max', label: '通义千问 (qwen-vl-max)' },
+    { value: 'qwen-vl-plus', label: '通义千问 (qwen-vl-plus)' },
+    { value: 'qwen2.5-vl-7b-instruct', label: '通义千问 2.5 (qwen2.5-vl-7b-instruct)' },
+    { value: 'qwen2.5-vl-72b-instruct', label: '通义千问 2.5 (qwen2.5-vl-72b-instruct)' }
+  ],
+  openai: [
+    { value: 'gpt-4o', label: 'GPT-4o (gpt-4o)' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o-mini (gpt-4o-mini)' }
+  ],
+  gemini: [
+    { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (gemini-3.5-flash)' },
+    { value: 'gemini-3.5-pro', label: 'Gemini 3.5 Pro (gemini-3.5-pro)' }
+  ],
+  volcengine: [
+    { value: 'doubao-1.5-vision-pro', label: '豆包 1.5 视觉 Pro (doubao-1.5-vision-pro)' },
+    { value: 'doubao-1.5-vision-lite', label: '豆包 1.5 视觉 Lite (doubao-1.5-vision-lite)' }
+  ],
+  custom: []
+};
+
+const handleVendorChange = () => {
+  const v = vendors.find(item => item.id === selectedVendor.value);
+  if (v) {
+    baseUrl.value = v.defaultUrl;
+  }
+  
+  const models = vendorModels[selectedVendor.value] || [];
+  if (models.length > 0) {
+    selectedModelOption.value = models[0].value;
+    modelName.value = models[0].value;
+  } else {
+    selectedModelOption.value = 'custom';
+    modelName.value = '';
+    customModelName.value = '';
+  }
+};
+
+const handleModelOptionChange = () => {
+  if (selectedModelOption.value === 'custom') {
+    if (selectedVendor.value === 'volcengine') {
+      customModelName.value = 'ep-';
+    } else {
+      customModelName.value = '';
+    }
+    modelName.value = customModelName.value;
+  } else {
+    modelName.value = selectedModelOption.value;
+  }
+};
+
+const handleCustomModelNameInput = () => {
+  modelName.value = customModelName.value;
+};
 
 // 错误状态
 const apiError = ref('');
@@ -149,29 +218,9 @@ const clearConfig = () => {
   apiError.value = '';
   urlError.value = '';
   modelError.value = '';
-};
-
-const applyPreset = (event) => {
-  const val = event.target.value;
-  if (val === '') {
-    baseUrl.value = '';
-    modelName.value = '';
-  } else if (val === 'dashscope-max') {
-    baseUrl.value = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-    modelName.value = 'qwen-vl-max';
-  } else if (val === 'dashscope-plus') {
-    baseUrl.value = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-    modelName.value = 'qwen-vl-plus';
-  } else if (val === 'openai-4o') {
-    baseUrl.value = 'https://api.openai.com/v1';
-    modelName.value = 'gpt-4o';
-  } else if (val === 'openai-mini') {
-    baseUrl.value = 'https://api.openai.com/v1';
-    modelName.value = 'gpt-4o-mini';
-  } else if (val === 'gemini-flash') {
-    baseUrl.value = 'https://generativelanguage.googleapis.com/';
-    modelName.value = 'gemini-3.5-flash';
-  }
+  selectedVendor.value = 'custom';
+  selectedModelOption.value = 'custom';
+  customModelName.value = '';
 };
 
 // 开启硬件：摄像头
@@ -381,14 +430,11 @@ onUnmounted(() => {
         
         <div class="settings-body">
           <div class="input-group">
-            <label>快速配置预设</label>
-            <select @change="applyPreset" class="preset-select">
-              <option value="">-- 自定义配置 (清空) --</option>
-              <option value="dashscope-max">阿里百炼 / 通义千问 (qwen-vl-max)</option>
-              <option value="dashscope-plus">阿里百炼 / 通义千问 (qwen-vl-plus)</option>
-              <option value="openai-4o">OpenAI 官方 (gpt-4o)</option>
-              <option value="openai-mini">OpenAI 官方 (gpt-4o-mini)</option>
-              <option value="gemini-flash">Google Gemini (gemini-3.5-flash)</option>
+            <label>选择厂商</label>
+            <select v-model="selectedVendor" @change="handleVendorChange" class="preset-select">
+              <option v-for="item in vendors" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
             </select>
           </div>
           
@@ -410,17 +456,35 @@ onUnmounted(() => {
           
           <div class="input-group">
             <label>
-              模型名称 / 接入点 
+              模型名称
               <span v-if="modelError" class="error-msg">{{ modelError }}</span>
             </label>
-            <input v-model="modelName" type="text" :class="{ 'input-error': modelError }" placeholder="qwen-vl-max / gpt-4o-mini" />
+            <select v-model="selectedModelOption" @change="handleModelOptionChange" class="preset-select">
+              <option v-for="m in vendorModels[selectedVendor]" :key="m.value" :value="m.value">
+                {{ m.label }}
+              </option>
+              <option value="custom">✍️ 手动输入自定义名字...</option>
+            </select>
+            
+            <input 
+              v-if="selectedModelOption === 'custom' || selectedVendor === 'custom'" 
+              v-model="customModelName" 
+              @input="handleCustomModelNameInput"
+              type="text" 
+              :class="{ 'input-error': modelError }" 
+              placeholder="请输入自定义模型名称 / 接入点ID..." 
+              style="margin-top: 8px;"
+            />
+            <span v-if="selectedVendor === 'volcengine'" class="input-hint" style="margin-top: 4px; display: block;">
+              提示: 火山引擎官方直接调用时需填入 ep- 开头的端点 ID (选择手动输入名字进行填写)
+            </span>
           </div>
           
           <p class="hint">请确保所使用的模型支持多模态图像/视觉识别功能</p>
         </div>
         
         <div class="panel-actions">
-          <button class="btn-clear" @click="clearConfig">清空</button>
+          <button class="btn-clear" @click="clearConfig">重置</button>
           <button class="btn-confirm" @click="validateConfig">确定并验证</button>
         </div>
       </div>
@@ -1049,6 +1113,12 @@ onUnmounted(() => {
   margin-bottom: 6px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
+}
+.input-hint {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: normal;
 }
 .error-msg {
   color: #ef4444;
