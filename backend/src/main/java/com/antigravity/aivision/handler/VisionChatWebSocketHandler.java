@@ -64,6 +64,15 @@ public class VisionChatWebSocketHandler extends TextWebSocketHandler {
                     return; // 验证请求处理完毕
                 }
 
+                if ("translate".equals(clientMessage.getEvent())) {
+                    SessionContext dummyContext = new SessionContext();
+                    String originalText = clientMessage.getText();
+                    clientMessage.setText("请将以下文字进行中英互译（如果是中文则翻译为英文，如果是英文则翻译为中文）。只需直接输出最符合原文风格的对应译文，不要有任何多余的解释、引号或Markdown包装标签。翻译内容如下：\n" + originalText);
+                    String response = llmService.generateResponse(clientMessage, dummyContext);
+                    sendMessage(session, ServerMessage.builder().status("translate_success").text(response).build());
+                    return;
+                }
+
                 // 发送 "思考中" 状态
                 sendMessage(session, ServerMessage.builder().status("processing").build());
 
