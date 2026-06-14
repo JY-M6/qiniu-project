@@ -30,10 +30,10 @@ const selectedModelOption = ref('qwen-vl-max');
 const customModelName = ref('');
 
 const vendors = [
-  { id: 'dashscope', name: '阿里百炼 (DashScope)', defaultUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
-  { id: 'openai', name: 'OpenAI 官方', defaultUrl: 'https://api.openai.com/v1' },
-  { id: 'gemini', name: 'Google Gemini 官方', defaultUrl: 'https://generativelanguage.googleapis.com/' },
-  { id: 'volcengine', name: '火山引擎 (Volcengine)', defaultUrl: 'https://ark.cn-beijing.volces.com/api/v3' },
+  { id: 'dashscope', name: '阿里百炼 (通义千问)', defaultUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { id: 'openai', name: 'OpenAI (GPT)', defaultUrl: 'https://api.openai.com/v1' },
+  { id: 'gemini', name: 'Google (Gemini)', defaultUrl: 'https://generativelanguage.googleapis.com/' },
+  { id: 'volcengine', name: '火山引擎 (豆包)', defaultUrl: 'https://ark.cn-beijing.volces.com/api/v3' },
   { id: 'custom', name: '自定义配置', defaultUrl: '' }
 ];
 
