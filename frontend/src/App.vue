@@ -153,12 +153,24 @@ const clearConfig = () => {
 
 const applyPreset = (event) => {
   const val = event.target.value;
-  if (val === 'dashscope') {
+  if (val === '') {
+    baseUrl.value = '';
+    modelName.value = '';
+  } else if (val === 'dashscope-max') {
     baseUrl.value = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
     modelName.value = 'qwen-vl-max';
-  } else if (val === 'openai') {
+  } else if (val === 'dashscope-plus') {
+    baseUrl.value = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    modelName.value = 'qwen-vl-plus';
+  } else if (val === 'openai-4o') {
+    baseUrl.value = 'https://api.openai.com/v1';
+    modelName.value = 'gpt-4o';
+  } else if (val === 'openai-mini') {
     baseUrl.value = 'https://api.openai.com/v1';
     modelName.value = 'gpt-4o-mini';
+  } else if (val === 'gemini-flash') {
+    baseUrl.value = 'https://generativelanguage.googleapis.com/';
+    modelName.value = 'gemini-3.5-flash';
   }
 };
 
@@ -302,7 +314,13 @@ onUnmounted(() => {
       <!-- 左侧：视觉与控制 -->
       <section class="left-column">
         <!-- 摄像头预览 -->
-        <div class="camera-section glass-panel">
+        <div class="camera-section glass-panel" :class="status">
+          <!-- 识别指针边角特效 -->
+          <div class="corner-pointer top-left" :class="status"></div>
+          <div class="corner-pointer top-right" :class="status"></div>
+          <div class="corner-pointer bottom-left" :class="status"></div>
+          <div class="corner-pointer bottom-right" :class="status"></div>
+          
           <div class="scanlines"></div>
           <video ref="videoRef" autoplay playsinline muted class="camera-preview"></video>
           <canvas ref="canvasRef" style="display: none;"></canvas>
@@ -365,9 +383,12 @@ onUnmounted(() => {
           <div class="input-group">
             <label>快速配置预设</label>
             <select @change="applyPreset" class="preset-select">
-              <option value="">-- 自定义 / 请选择 --</option>
-              <option value="dashscope">阿里百炼 / 通义千问 (DashScope)</option>
-              <option value="openai">OpenAI 官方 API</option>
+              <option value="">-- 自定义配置 (清空) --</option>
+              <option value="dashscope-max">阿里百炼 / 通义千问 (qwen-vl-max)</option>
+              <option value="dashscope-plus">阿里百炼 / 通义千问 (qwen-vl-plus)</option>
+              <option value="openai-4o">OpenAI 官方 (gpt-4o)</option>
+              <option value="openai-mini">OpenAI 官方 (gpt-4o-mini)</option>
+              <option value="gemini-flash">Google Gemini (gemini-3.5-flash)</option>
             </select>
           </div>
           
@@ -470,6 +491,104 @@ onUnmounted(() => {
   border-radius: 20px;
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   z-index: 2;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.glass-panel:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* 识别指针边角特效 */
+.camera-section {
+  position: relative;
+  transition: border-color 0.5s ease, box-shadow 0.5s ease;
+}
+.camera-section.listening {
+  border-color: rgba(0, 210, 255, 0.3) !important;
+  box-shadow: 0 0 20px rgba(0, 210, 255, 0.1);
+}
+.camera-section.thinking {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.1);
+}
+.camera-section.expressing {
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);
+}
+
+.corner-pointer {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border: 3px solid transparent;
+  z-index: 10;
+  transition: all 0.5s ease;
+  pointer-events: none;
+}
+.corner-pointer.idle {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.corner-pointer.listening {
+  border-color: #00d2ff;
+  filter: drop-shadow(0 0 6px #00d2ff);
+  animation: pointer-breathe-cyan 1.5s infinite alternate ease-in-out;
+}
+.corner-pointer.thinking {
+  border-color: #f59e0b;
+  filter: drop-shadow(0 0 6px #f59e0b);
+  animation: pointer-breathe-gold 1.5s infinite alternate ease-in-out;
+}
+.corner-pointer.expressing {
+  border-color: #10b981;
+  filter: drop-shadow(0 0 6px #10b981);
+  animation: pointer-breathe-green 1.5s infinite alternate ease-in-out;
+}
+.corner-pointer.speaking {
+  border-color: #3b82f6;
+  filter: drop-shadow(0 0 6px #3b82f6);
+  animation: pointer-pulse 0.4s infinite alternate ease-in-out;
+}
+
+.top-left {
+  top: 15px;
+  left: 15px;
+  border-right: none;
+  border-bottom: none;
+}
+.top-right {
+  top: 15px;
+  right: 15px;
+  border-left: none;
+  border-bottom: none;
+}
+.bottom-left {
+  bottom: 15px;
+  left: 15px;
+  border-right: none;
+  border-top: none;
+}
+.bottom-right {
+  bottom: 15px;
+  right: 15px;
+  border-left: none;
+  border-top: none;
+}
+
+@keyframes pointer-breathe-cyan {
+  0% { transform: scale(1); border-color: rgba(0, 210, 255, 0.6); }
+  100% { transform: scale(1.08); border-color: rgba(0, 210, 255, 1); }
+}
+@keyframes pointer-breathe-gold {
+  0% { transform: scale(1); border-color: rgba(245, 158, 11, 0.6); }
+  100% { transform: scale(1.08); border-color: rgba(245, 158, 11, 1); }
+}
+@keyframes pointer-breathe-green {
+  0% { transform: scale(1); border-color: rgba(16, 185, 129, 0.6); }
+  100% { transform: scale(1.08); border-color: rgba(16, 185, 129, 1); }
+}
+@keyframes pointer-pulse {
+  0% { transform: scale(0.95); opacity: 0.7; }
+  100% { transform: scale(1.1); opacity: 1; }
 }
 
 /* 头部 Header */
@@ -824,11 +943,17 @@ onUnmounted(() => {
   border-radius: 24px;
   outline: none;
   font-size: 0.85rem;
-  transition: all 0.3s;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
-.manual-input:focus {
+.manual-input:hover, .preset-select:hover, .input-group input:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.45);
+}
+.manual-input:focus, .preset-select:focus, .input-group input:focus {
   border-color: #00d2ff;
-  box-shadow: 0 0 10px rgba(0, 210, 255, 0.15);
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.25);
+  background: rgba(0, 0, 0, 0.5);
+  transform: scale(1.01);
 }
 .btn-send {
   padding: 8px 20px;
@@ -839,11 +964,15 @@ onUnmounted(() => {
   font-weight: 600;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 .btn-send:hover {
   background: #00d2ff;
   box-shadow: 0 0 12px rgba(0, 210, 255, 0.3);
+  transform: translateY(-2px) scale(1.03);
+}
+.btn-send:active {
+  transform: translateY(1px) scale(0.97);
 }
 
 /* 浮动配置按钮 & 面板 */
@@ -860,12 +989,14 @@ onUnmounted(() => {
   align-items: center;
   font-size: 1.1rem;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .settings-toggle.fab:hover {
-  transform: rotate(45deg);
-  background: rgba(255,255,255,0.1);
-  border-color: rgba(255,255,255,0.25);
+  transform: rotate(90deg) scale(1.1);
+  box-shadow: 0 0 15px rgba(0, 210, 255, 0.3);
+}
+.settings-toggle.fab:active {
+  transform: scale(0.95);
 }
 
 .settings-panel {
@@ -900,9 +1031,11 @@ onUnmounted(() => {
   font-size: 1.5rem;
   cursor: pointer;
   line-height: 1;
+  transition: all 0.3s ease;
 }
 .btn-close-settings:hover {
   color: white;
+  transform: scale(1.2) rotate(90deg);
 }
 
 .settings-body {
@@ -930,7 +1063,7 @@ onUnmounted(() => {
   border-radius: 8px;
   outline: none;
   font-size: 0.8rem;
-  transition: all 0.3s;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   width: 100%;
   box-sizing: border-box;
 }
@@ -969,11 +1102,15 @@ onUnmounted(() => {
   border-radius: 8px;
   color: rgba(255,255,255,0.7);
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 .btn-clear:hover {
   background: rgba(255,255,255,0.05);
   color: white;
+  transform: translateY(-2px);
+}
+.btn-clear:active {
+  transform: translateY(1px);
 }
 .btn-confirm {
   padding: 6px 18px;
@@ -984,10 +1121,14 @@ onUnmounted(() => {
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 .btn-confirm:hover {
   box-shadow: 0 0 12px rgba(0, 210, 255, 0.3);
+  transform: translateY(-2px);
+}
+.btn-confirm:active {
+  transform: translateY(1px);
 }
 
 /* 控制栏 */
@@ -1010,7 +1151,7 @@ onUnmounted(() => {
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   letter-spacing: 1px;
 }
 .btn-start {
@@ -1021,7 +1162,10 @@ onUnmounted(() => {
 .btn-start:hover {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.35) 0%, rgba(5, 150, 105, 0.35) 100%) !important;
   box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
-  transform: translateY(-1px);
+  transform: translateY(-2px) scale(1.02);
+}
+.btn-start:active {
+  transform: translateY(1px) scale(0.98);
 }
 .btn-stop {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%) !important;
