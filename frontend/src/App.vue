@@ -1,5 +1,22 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { marked } from 'marked';
+
+// 配置 marked 解析选项以优化段落回车与解析安全性
+marked.setOptions({
+  breaks: true,
+  gfm: true
+});
+
+const renderMarkdown = (text) => {
+  if (!text) return '';
+  try {
+    return marked.parse(text);
+  } catch (e) {
+    console.error('Markdown 渲染失败:', e);
+    return text;
+  }
+};
 
 const videoRef = ref(null);
 const canvasRef = ref(null);
@@ -250,7 +267,22 @@ const speakText = (text) => {
 
 const stopSpeaking = () => {
   if (window.speechSynthesis) {
-    window.speechSynthesis.cancel();
+    try {
+      // 1. 先暂停当前播放，减少缓冲突变产生的电流声爆音
+      window.speechSynthesis.pause();
+      // 2. 清空待播放队列
+      window.speechSynthesis.cancel();
+      
+      // 3. 产生一个极短时间的静音片段并播放，强行重置音频输出上下文缓冲
+      const silenceUtterance = new SpeechSynthesisUtterance('');
+      silenceUtterance.volume = 0;
+      window.speechSynthesis.speak(silenceUtterance);
+      setTimeout(() => {
+        window.speechSynthesis.cancel();
+      }, 50);
+    } catch (e) {
+      console.error('停止语音朗读错误:', e);
+    }
   }
 };
 
@@ -320,9 +352,22 @@ const initWebSocket = () => {
   };
 };
 
+// 发送防重缓存
+let lastSentText = '';
+let lastSentTime = 0;
+
 // 发送消息
 const sendMessage = (text, customCategory = null) => {
+  // 防重拦截：2秒内禁止发送完全一样的消息，防止麦克风逻辑并发调用 sendMessage 产生两条重复消息
+  const now = Date.now();
+  if (text === lastSentText && (now - lastSentTime < 2000)) {
+    console.warn('已拦截重复发送的内容:', text);
+    return;
+  }
+  
   if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+    lastSentText = text;
+    lastSentTime = now;
     let category = customCategory;
     if (!category) {
       const lower = text.toLowerCase();
@@ -632,6 +677,16 @@ const scrollToBottom = () => {
 
 // --- 会话历史及持久化操作 ---
 const createNewSession = () => {
+  // 强行关闭与清除前一个会话未完成的异步逻辑
+  stopSpeaking();
+  if (streamTimer) {
+    clearInterval(streamTimer);
+    streamTimer = null;
+  }
+  isStreaming.value = false;
+  streamingText.value = '';
+  isAiThinking.value = false;
+
   activeSessionId.value = null;
   chatHistory.value = [];
   uploadedImageSrc.value = null;
@@ -679,6 +734,16 @@ const saveCurrentSession = () => {
 };
 
 const loadSession = (session) => {
+  // 强行关闭与清除前一个会话未完成的异步逻辑
+  stopSpeaking();
+  if (streamTimer) {
+    clearInterval(streamTimer);
+    streamTimer = null;
+  }
+  isStreaming.value = false;
+  streamingText.value = '';
+  isAiThinking.value = false;
+
   activeSessionId.value = session.id;
   chatHistory.value = JSON.parse(JSON.stringify(session.chatHistory));
   uploadedImageSrc.value = session.uploadedImageSrc;
@@ -696,6 +761,16 @@ const deleteSession = (sessionId, event) => {
   localStorage.setItem('aura_history_sessions', JSON.stringify(historySessions.value));
   
   if (activeSessionId.value === sessionId) {
+    // 若删除的是当前活动会话，强行重置所有流和状态
+    stopSpeaking();
+    if (streamTimer) {
+      clearInterval(streamTimer);
+      streamTimer = null;
+    }
+    isStreaming.value = false;
+    streamingText.value = '';
+    isAiThinking.value = false;
+
     activeSessionId.value = null;
     chatHistory.value = [];
     uploadedImageSrc.value = null;
@@ -1001,15 +1076,25 @@ const interruptAnswer = () => {
     clearInterval(streamTimer);
     streamTimer = null;
   }
-  // 不发送未注册的后端打断包，防止空API配置被校验触发报错
+
+  // 保留已生成的内容：把打字机已显示的文字 push 进历史，再清空流式显示区
+  if (streamingText.value.trim()) {
+    chatHistory.value.push({
+      role: 'ai',
+      text: streamingText.value,
+      category: activeMessageCategory.value
+    });
+    saveCurrentSession();
+    scrollToBottom();
+  }
   isStreaming.value = false;
   streamingText.value = '';
-  
+
   // 根据不同的状态，显示更精准的 Toast 提示
-  if (isAiThinking.value && !isStreaming.value) {
+  if (isAiThinking.value) {
     showToast('已打断 AI 思考', 'warning', 1500);
   } else {
-    showToast('已打断 AI 回答', 'warning', 1500);
+    showToast('已打断 AI 回答，内容已保留', 'warning', 1500);
   }
   isAiThinking.value = false;
 
@@ -1073,6 +1158,8 @@ const toggleInputMic = () => {
     stopInputMic();
   } else {
     if (isMicOn.value) {
+      // 先清空主麦临时文字，避免 stopMic() 内部自动 sendMessage() 造成重复发送
+      speechPreviewText.value = '';
       stopMic();
     }
     startInputMic();
@@ -1123,6 +1210,25 @@ const stopInputMic = () => {
     } catch(e) {}
   }
   isRecordingInput.value = false;
+};
+
+// 停止录音并立即发送已识别的文字（「说完了」按钮专用）
+const stopInputMicAndSend = () => {
+  // 先停止录音
+  if (inputSpeechRecognition) {
+    try { inputSpeechRecognition.stop(); } catch(e) {}
+  }
+  isRecordingInput.value = false;
+  // 稍微延迟一下，等待 onresult 最后一个 interim 写入 manualInputText
+  setTimeout(() => {
+    const text = manualInputText.value.trim();
+    if (text) {
+      sendMessage(text);
+      manualInputText.value = '';
+    } else {
+      showToast('未识别到内容，请重试', 'warning', 1500);
+    }
+  }, 200);
 };
 
 const toggleTheme = () => {
@@ -1301,7 +1407,7 @@ onUnmounted(() => {
                 <div v-if="msg.role === 'ai' && msg.category === 'OCR 文字'" class="ocr-scroll-block">
                   <pre>{{ msg.text }}</pre>
                 </div>
-                <div v-else class="bubble-content">{{ msg.text }}</div>
+                <div v-else class="bubble-content markdown-body" v-html="renderMarkdown(msg.text)"></div>
                 
                 <!-- Hover action icons -->
                 <div v-if="msg.role === 'ai'" class="bubble-actions">
@@ -1334,9 +1440,7 @@ onUnmounted(() => {
                 <span class="bubble-sender">AURA</span>
                 <span class="bubble-category-label">{{ activeMessageCategory }}</span>
               </div>
-              <div class="bubble-content streaming-text">
-                {{ streamingText }}
-                <span class="cursor-blink">|</span>
+              <div class="bubble-content streaming-text markdown-body" v-html="renderMarkdown(streamingText) + '<span class=\'cursor-blink\'>|</span>'">
               </div>
               <!-- 正在流式输出时直接展示打断按钮 -->
               <div class="bubble-actions" style="opacity: 1; pointer-events: auto; transform: translateY(0);">
@@ -1402,8 +1506,8 @@ onUnmounted(() => {
                 <span class="voice-wave-dots"><span></span><span></span><span></span></span>
               </div>
               <!-- 主动结束说话，即时触发发送 -->
-              <button @click="stopInputMic" class="btn-send" style="background: #10b981; height: 32px; padding: 0 12px; font-size: 0.85em; border-radius: 4px;">
-                說完了
+              <button @click="stopInputMicAndSend" class="btn-send" style="background: #10b981; height: 32px; padding: 0 12px; font-size: 0.85em; border-radius: 4px;">
+                ✅ 说完了，发送
               </button>
             </div>
             
@@ -1753,8 +1857,8 @@ onUnmounted(() => {
   font-family: 'Outfit', 'Space Grotesk', system-ui, sans-serif;
   overflow: hidden;
   position: relative;
-  font-size: calc(var(--font-size-base, 14) * 1px);
-  transition: background 0.3s ease, color 0.3s ease, font-size 0.2s ease;
+  font-size: var(--font-size-base, 14px);
+  transition: background 0.3s ease, color 0.3s ease, font-size 0.25s ease;
 }
 
 /* Light Theme Variables Override */
@@ -3394,5 +3498,104 @@ onUnmounted(() => {
 .toast-slide-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(-20px) scale(0.95);
+}
+
+/* ==========================================================================
+   九、Markdown 气泡文本排版美化样式
+   ========================================================================== */
+.markdown-body {
+  word-wrap: break-word;
+  font-size: 1em;
+  line-height: 1.6;
+  color: inherit;
+}
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin-top: 12px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--primary-color, #10b981);
+}
+
+.markdown-body h1 { font-size: 1.4em; border-bottom: 1px solid rgba(255, 255, 255, 0.15); padding-bottom: 4px; }
+.markdown-body h2 { font-size: 1.25em; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 3px; }
+.markdown-body h3 { font-size: 1.15em; }
+.markdown-body h4 { font-size: 1em; }
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 20px;
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.markdown-body li {
+  margin-top: 3px;
+  list-style-position: outside;
+}
+
+.markdown-body code {
+  padding: 0.2em 0.4em;
+  margin: 0;
+  font-size: 85%;
+  background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.markdown-body pre {
+  padding: 12px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  background-color: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.markdown-body pre code {
+  padding: 0;
+  margin: 0;
+  font-size: 100%;
+  word-break: normal;
+  white-space: pre;
+  background: transparent;
+  border: 0;
+}
+
+.markdown-body hr {
+  height: 1px;
+  padding: 0;
+  margin: 16px 0;
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 0;
+}
+
+.markdown-body strong {
+  font-weight: bold;
+  color: #ff9f43; /* 给强调加粗字体设计一个暖色调以增强观感 */
+}
+
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: rgba(255, 255, 255, 0.7);
+  border-left: 0.25em solid #10b981;
+  margin: 0 0 8px 0;
 }
 </style>
