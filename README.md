@@ -9,7 +9,7 @@
 ## 🎬 演示与修复视频 (Demo Videos)
 
 - 🎥 **[点击观看项目演示 Demo 测试视频 (Bilibili)](https://www.bilibili.com/video/BV1K8JK61E1r/)**
-- 🛠️ **[点击观看关于第一条呈现的 Bug 修复视频 (Bilibili)](https://www.bilibili.com/video/BV17DJK6wELm/)**
+- 🛠️ **[点击观看关于第一条demo视频中呈现的 Bug 修复视频 (Bilibili)](https://www.bilibili.com/video/BV17DJK6wELm/)**
 
 📖 **[点击查看详细设计文档 (DESIGN_DOCUMENT.md)](./DESIGN_DOCUMENT.md)** *(包含用户故事实现对照与端云协同成本控制技巧分析)*
 

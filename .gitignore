@@ -16,3 +16,10 @@ frontend/*.local
 # OS
 .DS_Store
 Thumbs.db
+
+# Chrome & Run Logs
+chrome_log_*.txt
+chrome_run_*.log
+chrome_*.log
+*.log
+*.txt
