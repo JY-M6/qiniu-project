@@ -585,6 +585,10 @@ const stopMic = () => {
       speechRecognition.stop(); 
     } catch(e) {}
   }
+  // 如果当前有未转为 final 的临时语音文本，主动将其作为最终结果发送
+  if (speechPreviewText.value && speechPreviewText.value.trim()) {
+    sendMessage(speechPreviewText.value.trim());
+  }
   speechPreviewText.value = '';
 };
 
@@ -627,6 +631,16 @@ const scrollToBottom = () => {
 };
 
 // --- 会话历史及持久化操作 ---
+const createNewSession = () => {
+  activeSessionId.value = null;
+  chatHistory.value = [];
+  uploadedImageSrc.value = null;
+  croppedImageSrc.value = null;
+  hasCrop.value = false;
+  latestImageBase64 = null;
+  showToast('已开启全新对话', 'success', 1500);
+};
+
 const saveCurrentSession = () => {
   if (chatHistory.value.length === 0) return;
   
@@ -1147,7 +1161,10 @@ onUnmounted(() => {
     <aside class="sidebar">
       <div class="sidebar-header">
         <span class="sidebar-title">历史记录</span>
-        <button class="btn-clear-all" title="清空全部历史会话" @click="showConfirmClearModal = true">🗑️</button>
+        <div class="sidebar-actions">
+          <button class="btn-new-chat" title="新建对话" @click="createNewSession">➕</button>
+          <button class="btn-clear-all" title="清空全部历史会话" @click="showConfirmClearModal = true">🗑️</button>
+        </div>
       </div>
       <div class="sidebar-divider"></div>
       <div class="sidebar-content">
@@ -1230,13 +1247,23 @@ onUnmounted(() => {
           </div>
 
           <!-- 状态指示器 (AI 核心呼吸球) -->
-          <div class="status-section glass-panel">
+          <div class="status-section glass-panel" style="position: relative;">
             <div class="status-orb-container">
               <div class="orb-ring ring-1" :class="status"></div>
               <div class="orb-ring ring-2" :class="status"></div>
               <div class="status-orb" :class="status"></div>
               <div class="status-text">{{ status === 'idle' ? 'STANDBY' : status === 'listening' ? 'LISTENING' : status === 'speaking' ? 'HEARING' : status === 'thinking' ? 'THINKING' : 'SPEAKING' }}</div>
             </div>
+            <!-- 主动结束说话按钮，当状态处于 listening 或 speaking 且正在使用连续语音时，悬浮于侧方 -->
+            <button 
+              v-if="(status === 'listening' || status === 'speaking') && isMicOn"
+              @click="stopMic" 
+              class="btn-send"
+              style="position: absolute; right: 20px; background: #f59e0b; padding: 6px 12px; font-size: 0.8em; border-radius: 6px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+              title="立即停止麦克风监听并对已捕获的声音进行识别"
+            >
+              ✋ 停止倾听并发送
+            </button>
           </div>
         </section>
 
@@ -1369,10 +1396,16 @@ onUnmounted(() => {
               🎙️
             </button>
             
-            <span v-if="isRecordingInput" class="recording-hint-text">
-              正在录音…
-              <span class="voice-wave-dots"><span></span><span></span><span></span></span>
-            </span>
+            <div v-if="isRecordingInput" class="recording-hint-text" style="flex: 1; display: flex; justify-content: space-between; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                正在录音…
+                <span class="voice-wave-dots"><span></span><span></span><span></span></span>
+              </div>
+              <!-- 主动结束说话，即时触发发送 -->
+              <button @click="stopInputMic" class="btn-send" style="background: #10b981; height: 32px; padding: 0 12px; font-size: 0.85em; border-radius: 4px;">
+                說完了
+              </button>
+            </div>
             
             <input 
               v-else
@@ -1824,7 +1857,12 @@ onUnmounted(() => {
   font-weight: 700;
   color: var(--text-color);
 }
-.btn-clear-all {
+.sidebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-new-chat, .btn-clear-all {
   background: transparent;
   border: none;
   color: var(--hint-color);
@@ -1837,12 +1875,16 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
 }
+.btn-new-chat:hover {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+.btn-new-chat:active, .btn-clear-all:active {
+  transform: translateY(1px);
+}
 .btn-clear-all:hover {
   background: rgba(239, 68, 68, 0.1);
   color: #ef4444;
-}
-.btn-clear-all:active {
-  transform: translateY(1px);
 }
 .sidebar-divider {
   height: 1px;
