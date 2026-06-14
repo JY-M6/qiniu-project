@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 
 const videoRef = ref(null);
@@ -17,11 +17,11 @@ let frameInterval = null;
 let latestImageBase64 = null;
 let speechRecognition = null;
 
-// 大模型配置
+// 模型配置
 const apiKey = ref('');
 const baseUrl = ref('https://dashscope.aliyuncs.com/compatible-mode/v1');
 const modelName = ref('qwen-vl-max');
-const showSettings = ref(true); // 默认展开设置面板
+const showSettings = ref(true);
 const activeModelName = ref('');
 
 // Toast 通知系统
@@ -37,6 +37,14 @@ const showToast = (message, type = 'success', duration = 3000) => {
 
 // 实时语音识别预览
 const speechPreviewText = ref('');
+// AI 思考中状态
+const isAiThinking = ref(false);
+
+// --- 打字机效果 ---
+const streamingText = ref('');
+const isStreaming = ref(false);
+let streamTimer = null;
+let streamQueue = [];
 
 // 厂商和模型映射
 const selectedVendor = ref('dashscope');
@@ -112,7 +120,29 @@ const apiError = ref('');
 const urlError = ref('');
 const modelError = ref('');
 
-// 初始化 WebSocket (仅连接，不自动开启对话硬件)
+// === 打字机效果 ===
+const startTypewriter = (text) => {
+  isStreaming.value = true;
+  streamingText.value = '';
+  const chars = text.split('');
+  let index = 0;
+  
+  if (streamTimer) clearInterval(streamTimer);
+  
+  streamTimer = setInterval(() => {
+    if (index < chars.length) {
+      streamingText.value += chars[index];
+      index++;
+      scrollToBottom();
+    } else {
+      clearInterval(streamTimer);
+      streamTimer = null;
+      isStreaming.value = false;
+    }
+  }, 30);
+};
+
+// 初始化 WebSocket
 const initWebSocket = () => {
   if (ws.value && ws.value.readyState !== WebSocket.CLOSED) return;
 
@@ -127,23 +157,25 @@ const initWebSocket = () => {
     
     // 拦截验证消息
     if (data.status === 'validation_success') {
-      showToast('✅ 配置成功！模型已连接', 'success');
+      showToast('验证成功！模型已连接', 'success');
       activeModelName.value = modelName.value;
       showSettings.value = false;
     } else if (data.status === 'validation_error') {
-      // 格式: ERROR_TYPE:ErrorMessage
       const [type, msg] = data.text.split(':');
       if (type === 'API_INVALID') apiError.value = msg;
       else if (type === 'URL_INVALID') urlError.value = msg;
       else if (type === 'MODEL_INVALID') modelError.value = msg;
       else showToast(data.text, 'error');
     }
-    // 拦截常规对话状态
     else if (data.status === 'processing') {
       status.value = 'thinking';
+      isAiThinking.value = true;
+      scrollToBottom();
     } else if (data.status === 'completed') {
+      isAiThinking.value = false;
       status.value = 'expressing';
-      chatHistory.value.push({ role: 'ai', text: data.text });
+      // 使用打字机效果显示回复
+      startTypewriter(data.text);
       scrollToBottom();
       
       setTimeout(() => {
@@ -151,6 +183,7 @@ const initWebSocket = () => {
         else status.value = 'idle';
       }, 2000);
     } else if (data.status === 'error') {
+      isAiThinking.value = false;
       chatHistory.value.push({ role: 'system', text: data.text });
       status.value = 'idle';
     }
@@ -163,26 +196,23 @@ const initWebSocket = () => {
       stopConversation();
     }
   };
+
+  ws.value.onerror = (err) => {
+    console.error('WebSocket Error:', err);
+  };
 };
 
-const scrollToBottom = async () => {
-  await nextTick();
-  if (chatListRef.value) {
-    chatListRef.value.scrollTop = chatListRef.value.scrollHeight;
-  }
-};
-
-// 发送常规对话消息
+// 发送消息
 const sendMessage = (text) => {
   if (ws.value && ws.value.readyState === WebSocket.OPEN) {
     chatHistory.value.push({ role: 'user', text: text });
+    isAiThinking.value = true;
     scrollToBottom();
     
     ws.value.send(JSON.stringify({
       event: 'user_input',
       text: text,
       imageBase64: latestImageBase64,
-      timestamp: Date.now(),
       apiKey: apiKey.value,
       baseUrl: baseUrl.value,
       modelName: modelName.value
@@ -200,7 +230,6 @@ const sendManualMessage = () => {
 
 // 验证配置
 const validateConfig = () => {
-  // 清空错误
   apiError.value = '';
   urlError.value = '';
   modelError.value = '';
@@ -209,10 +238,9 @@ const validateConfig = () => {
   if (!baseUrl.value) { urlError.value = "Base URL 不能为空"; return; }
   if (!modelName.value) { modelError.value = "模型名称不能为空"; return; }
 
-  // 确保 socket 已连
   if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
     initWebSocket();
-    setTimeout(validateConfig, 500); // 简单重试机制等连接好
+    setTimeout(validateConfig, 500);
     return;
   }
 
@@ -237,7 +265,7 @@ const clearConfig = () => {
   customModelName.value = '';
 };
 
-// 开启硬件：摄像头
+// === 摄像头控制（使用 requestAnimationFrame 代替 setInterval 减少卡顿）===
 const startCamera = async () => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -245,21 +273,31 @@ const startCamera = async () => {
     if (videoRef.value) videoRef.value.srcObject = stream;
     isCamOn.value = true;
     
-    frameInterval = setInterval(captureFrame, 1000);
+    let lastCapture = 0;
+    const FRAME_INTERVAL = 1000; // 1秒一帧
+    
+    const frameLoop = (timestamp) => {
+      if (!isCamOn.value) return;
+      if (timestamp - lastCapture >= FRAME_INTERVAL) {
+        captureFrame();
+        lastCapture = timestamp;
+      }
+      frameInterval = requestAnimationFrame(frameLoop);
+    };
+    
+    frameInterval = requestAnimationFrame(frameLoop);
   } catch (err) {
     console.error('Camera error:', err);
-    showToast('⚠️ 无法访问摄像头', 'warning');
+    showToast('无法访问摄像头', 'warning');
   }
 };
 
-// 关闭硬件：摄像头
 const stopCamera = () => {
   if (mediaStream) mediaStream.getVideoTracks().forEach(track => track.stop());
-  if (frameInterval) clearInterval(frameInterval);
+  if (frameInterval) cancelAnimationFrame(frameInterval);
   isCamOn.value = false;
 };
 
-// 抽取视频帧
 const captureFrame = () => {
   if (videoRef.value && canvasRef.value && isCamOn.value) {
     const context = canvasRef.value.getContext('2d');
@@ -271,7 +309,7 @@ const captureFrame = () => {
   }
 };
 
-// 初始化麦克风 (Web Speech API)
+// === 语音识别（优化版：多候选置信度权重 + 实时无锁同步显示）===
 const initSpeechRecognition = () => {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -283,48 +321,62 @@ const initSpeechRecognition = () => {
   speechRecognition.continuous = true;
   speechRecognition.interimResults = true;
   speechRecognition.lang = 'zh-CN';
-
+  
+  // 开启多候选结果（maxAlternatives），通过置信度加权选择最佳文本
+  speechRecognition.maxAlternatives = 5;
+  
   speechRecognition.onstart = () => {
     status.value = 'listening';
-    showToast('🎙️ 麦克风已就绪，请开始说话！', 'success', 2000);
+    showToast('麦克风已就绪，请开始说话！', 'success', 2000);
   };
 
   speechRecognition.onresult = (event) => {
     let interimTranscript = '';
     let finalTranscript = '';
     
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      const transcript = event.results[i][0].transcript;
-      if (event.results[i].isFinal) {
-        finalTranscript += transcript;
-      } else {
-        interimTranscript += transcript;
+    // 使用 requestAnimationFrame 调度 DOM 更新，避免频繁重排
+    requestAnimationFrame(() => {
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        // 置信度加权：取所有候选中置信度最高的文本
+        let bestTranscript = '';
+        let bestConfidence = -1;
+        for (let j = 0; j < event.results[i].length; j++) {
+          if (event.results[i][j].confidence >= bestConfidence) {
+            bestConfidence = event.results[i][j].confidence;
+            bestTranscript = event.results[i][j].transcript;
+          }
+        }
+        if (event.results[i].isFinal) {
+          finalTranscript += bestTranscript;
+        } else {
+          interimTranscript += bestTranscript;
+        }
       }
-    }
-    
-    if (interimTranscript) {
-      status.value = 'speaking';
-      speechPreviewText.value = interimTranscript;
-      scrollToBottom();
-    }
-    
-    if (finalTranscript.trim()) {
-      sendMessage(finalTranscript.trim());
-      speechPreviewText.value = '';
-      status.value = 'thinking';
-    }
+      
+      if (interimTranscript) {
+        status.value = 'speaking';
+        // 直接同步更新预览文本，无防抖锁 — 实时同步显示
+        speechPreviewText.value = interimTranscript;
+      }
+      
+      if (finalTranscript.trim()) {
+        sendMessage(finalTranscript.trim());
+        speechPreviewText.value = '';
+        status.value = 'thinking';
+      }
+    });
   };
 
   speechRecognition.onerror = (event) => {
     console.error('Speech recognition error:', event.error);
     if (event.error === 'not-allowed') {
-      showToast('❌ 麦克风权限被拒绝，请在浏览器中允许访问麦克风', 'error');
+      showToast('麦克风权限被拒绝，请在浏览器中允许访问麦克风', 'error');
       isMicOn.value = false;
       status.value = 'idle';
     } else if (event.error === 'no-speech') {
       // 仅无声，不中断
     } else {
-      showToast(`⚠️ 语音助手提示: ${event.error}`, 'warning', 2000);
+      showToast(`语音助手提示: ${event.error}`, 'warning', 2000);
     }
   };
 
@@ -357,10 +409,10 @@ const stopMic = () => {
   speechPreviewText.value = '';
 };
 
-// 统管会话
+// 管理会话
 const startConversation = () => {
   if (!activeModelName.value) {
-    showToast('⚠️ 请先在左上角配置大模型！', 'warning');
+    showToast('请先在左上角配置大模型！', 'warning');
     showSettings.value = true;
     return;
   }
@@ -368,7 +420,7 @@ const startConversation = () => {
   chatHistory.value.push({ role: 'system', text: '对话已开始。' });
   if (!ws.value || ws.value.readyState !== WebSocket.OPEN) initWebSocket();
   startCamera();
-  status.value = 'thinking'; // 切换到初始化状态，待 onstart 激活为 listening
+  status.value = 'thinking';
   startMic();
 };
 
@@ -377,9 +429,23 @@ const stopConversation = () => {
   status.value = 'idle';
   stopCamera();
   stopMic();
+  // 清理打字机
+  if (streamTimer) clearInterval(streamTimer);
+  isStreaming.value = false;
+  streamingText.value = '';
   chatHistory.value.push({ role: 'system', text: '对话已结束。' });
 };
 
+// 滚动到底部
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (chatListRef.value) {
+      chatListRef.value.scrollTop = chatListRef.value.scrollHeight;
+    }
+  });
+};
+
+// 对话完成时提交最终AI消息
 onMounted(() => {
   initWebSocket();
 });
@@ -390,6 +456,7 @@ onUnmounted(() => {
 });
 
 </script>
+
 
 <template>
   <div class="app-container">
@@ -452,6 +519,25 @@ onUnmounted(() => {
           <div v-for="(msg, index) in chatHistory" :key="index" :class="['chat-bubble', msg.role]">
             <div class="bubble-sender">{{ msg.role === 'user' ? 'YOU' : msg.role === 'ai' ? 'AURA' : 'SYSTEM' }}</div>
             <div class="bubble-content">{{ msg.text }}</div>
+          <!-- AI 流式打字效果显示 -->
+          <div v-if="isStreaming" class="chat-bubble ai streaming-bubble">
+            <div class="bubble-sender">AURA (正在生成...)</div>
+            <div class="bubble-content streaming-text">
+              {{ streamingText }}
+              <span class="cursor-blink">|</span>
+            </div>
+          </div>
+          <!-- AI 思考动画 -->
+          <div v-if="isAiThinking && !isStreaming" class="chat-bubble ai thinking-bubble">
+            <div class="bubble-sender">AURA (思考中...)</div>
+            <div class="thinking-animation">
+              <div class="think-bar bar-1"></div>
+              <div class="think-bar bar-2"></div>
+              <div class="think-bar bar-3"></div>
+              <div class="think-bar bar-4"></div>
+            </div>
+            <div class="thinking-subtitle">正在分析视觉信息...</div>
+          </div>
           </div>
           <!-- 实时语音输入预览 -->
           <div v-if="speechPreviewText" class="chat-bubble user interim-bubble">
@@ -1499,4 +1585,75 @@ onUnmounted(() => {
   transform: translateX(-50%) translateY(-20px) scale(0.95);
   filter: blur(4px);
 }
+
+/* === AI 思考动画 (声波动画条) === */
+.thinking-bubble {
+  animation: thinking-pulse 1.5s infinite alternate ease-in-out;
+}
+.thinking-animation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  height: 32px;
+}
+.think-bar {
+  width: 4px;
+  background: linear-gradient(180deg, #00d2ff, #7928ca);
+  border-radius: 4px;
+  animation: think-wave 1.2s ease-in-out infinite;
+}
+.think-bar.bar-1 { height: 12px; animation-delay: 0s; }
+.think-bar.bar-2 { height: 24px; animation-delay: 0.15s; }
+.think-bar.bar-3 { height: 32px; animation-delay: 0.3s; }
+.think-bar.bar-4 { height: 18px; animation-delay: 0.45s; }
+
+@keyframes think-wave {
+  0%, 100% {
+    transform: scaleY(0.5);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes thinking-pulse {
+  0% { border-color: rgba(0, 210, 255, 0.15); }
+  100% { border-color: rgba(0, 210, 255, 0.4); }
+}
+
+.thinking-subtitle {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+/* === 流式打字效果 === */
+.streaming-bubble {
+  animation: streaming-glow 1.5s infinite alternate ease-in-out;
+}
+.streaming-text {
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.cursor-blink {
+  color: #00d2ff;
+  font-weight: 300;
+  animation: blink-cursor 0.8s step-end infinite;
+  margin-left: 2px;
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes streaming-glow {
+  0% { border-color: rgba(0, 210, 255, 0.2); box-shadow: 0 0 8px rgba(0, 210, 255, 0.05); }
+  100% { border-color: rgba(0, 210, 255, 0.5); box-shadow: 0 0 20px rgba(0, 210, 255, 0.15); }
+}
+
 </style>
