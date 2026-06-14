@@ -10,6 +10,8 @@
 
 🎥 **[在线观看项目演示 Demo 视频](https://YOUR_ONLINE_VIDEO_URL)** *(建议在浏览器中直接点击在线播放，无需下载或注册)*
 
+📖 **[点击查看详细设计文档 (DESIGN_DOCUMENT.md)](./DESIGN_DOCUMENT.md)** *(包含用户故事实现对照与端云协同成本控制技巧分析)*
+
 ---
 
 ## ✨ 核心亮点与功能
