@@ -21,4 +21,12 @@ public class WebSocketConfig implements WebSocketConfigurer {
         registry.addHandler(visionChatWebSocketHandler, "/ws/chat")
                 .setAllowedOrigins("*"); // 允许跨域
     }
+
+    @org.springframework.context.annotation.Bean
+    public org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean createWebSocketContainer() {
+        org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean container = new org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean();
+        container.setMaxTextMessageBufferSize(5 * 1024 * 1024); // 5MB
+        container.setMaxBinaryMessageBufferSize(5 * 1024 * 1024); // 5MB
+        return container;
+    }
 }

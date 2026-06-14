@@ -21,7 +21,7 @@ let speechRecognition = null;
 const apiKey = ref('');
 const baseUrl = ref('');
 const modelName = ref('');
-const showSettings = ref(false);
+const showSettings = ref(true); // 默认展开设置面板
 const activeModelName = ref('');
 
 // 错误状态
@@ -107,6 +107,14 @@ const sendMessage = (text) => {
   }
 };
 
+const manualInputText = ref('');
+const sendManualMessage = () => {
+  if (manualInputText.value.trim()) {
+    sendMessage(manualInputText.value.trim());
+    manualInputText.value = '';
+  }
+};
+
 // 验证配置
 const validateConfig = () => {
   // 清空错误
@@ -141,6 +149,17 @@ const clearConfig = () => {
   apiError.value = '';
   urlError.value = '';
   modelError.value = '';
+};
+
+const applyPreset = (event) => {
+  const val = event.target.value;
+  if (val === 'dashscope') {
+    baseUrl.value = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    modelName.value = 'qwen-vl-max';
+  } else if (val === 'openai') {
+    baseUrl.value = 'https://api.openai.com/v1';
+    modelName.value = 'gpt-4o-mini';
+  }
 };
 
 // 开启硬件：摄像头
@@ -264,75 +283,132 @@ onUnmounted(() => {
 
 <template>
   <div class="app-container">
-    <!-- 当前激活模型显示 -->
-    <div class="active-model-display" v-if="activeModelName">
-      <span class="dot green"></span> 当前模型: {{ activeModelName }}
-    </div>
-
-    <!-- 状态指示器 (AI 核心) -->
-    <div class="status-orb-container">
-      <div class="status-orb" :class="status"></div>
-      <div class="status-text">{{ status === 'idle' ? '未激活' : status === 'listening' ? '倾听中...' : status === 'speaking' ? '接收中...' : status === 'thinking' ? '思考中...' : '表达中' }}</div>
-    </div>
-
-    <!-- 左侧顶部：设置按钮与面板 -->
-    <button class="settings-toggle glass-panel" @click="showSettings = !showSettings">
-      ⚙️ 配置大模型
-    </button>
+    <!-- 背景流光特效 -->
+    <div class="ambient-glow bg-1"></div>
+    <div class="ambient-glow bg-2"></div>
     
-    <div v-if="showSettings" class="settings-panel glass-panel">
-      <h3>大模型 API 配置</h3>
-      
-      <div class="input-group">
-        <label>
-          Base URL 
-          <span v-if="urlError" class="error-msg">{{ urlError }}</span>
-        </label>
-        <input v-model="baseUrl" type="text" :class="{ 'input-error': urlError }" placeholder="https://api.openai.com/v1" />
+    <header class="app-header">
+      <div class="logo">
+        <span class="pulse-dot"></span>
+        <span class="logo-text">AURA VISION</span>
+        <span class="logo-badge">MVP</span>
       </div>
-      
-      <div class="input-group">
-        <label>
-          API Key 
-          <span v-if="apiError" class="error-msg">{{ apiError }}</span>
-        </label>
-        <input v-model="apiKey" type="password" :class="{ 'input-error': apiError }" placeholder="sk-..." />
+      <div class="active-model-display" v-if="activeModelName">
+        <span class="dot green"></span> Connected: {{ activeModelName }}
       </div>
-      
-      <div class="input-group">
-        <label>
-          模型名称 / 接入点 
-          <span v-if="modelError" class="error-msg">{{ modelError }}</span>
-        </label>
-        <input v-model="modelName" type="text" :class="{ 'input-error': modelError }" placeholder="gpt-4o / ep-..." />
-      </div>
-      
-      <p class="hint">请确保使用的模型支持多模态（Vision）功能</p>
-      
-      <div class="panel-actions">
-        <button class="btn-clear" @click="clearConfig">清空</button>
-        <button class="btn-confirm" @click="validateConfig">确定并验证</button>
-      </div>
-    </div>
+    </header>
 
-    <!-- 主视觉区：摄像头 -->
-    <div class="camera-section glass-panel">
-      <video ref="videoRef" autoplay playsinline muted class="camera-preview"></video>
-      <canvas ref="canvasRef" style="display: none;"></canvas>
-      <div v-if="!isCamOn" class="placeholder">
-        <p>画面未开启</p>
-      </div>
-    </div>
+    <main class="app-main">
+      <!-- 左侧：视觉与控制 -->
+      <section class="left-column">
+        <!-- 摄像头预览 -->
+        <div class="camera-section glass-panel">
+          <div class="scanlines"></div>
+          <video ref="videoRef" autoplay playsinline muted class="camera-preview"></video>
+          <canvas ref="canvasRef" style="display: none;"></canvas>
+          <div v-if="!isCamOn" class="placeholder">
+            <div class="placeholder-icon">👁️</div>
+            <p>视频画面未开启</p>
+          </div>
+        </div>
 
-    <!-- 右侧：对话流 -->
-    <div class="chat-section glass-panel">
-      <div class="chat-header">对话记录</div>
-      <div class="chat-list" ref="chatListRef">
-        <div v-for="(msg, index) in chatHistory" :key="index" :class="['chat-bubble', msg.role]">
-          {{ msg.text }}
+        <!-- 状态指示器 (AI 核心呼吸球) -->
+        <div class="status-section glass-panel">
+          <div class="status-orb-container">
+            <div class="orb-ring ring-1" :class="status"></div>
+            <div class="orb-ring ring-2" :class="status"></div>
+            <div class="status-orb" :class="status"></div>
+            <div class="status-text">{{ status === 'idle' ? 'STANDBY' : status === 'listening' ? 'LISTENING' : status === 'speaking' ? 'HEARING' : status === 'thinking' ? 'THINKING' : 'SPEAKING' }}</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧：对话流 -->
+      <section class="right-column chat-section glass-panel">
+        <div class="chat-header">
+          <span>对话记录</span>
+          <button class="btn-clear-chat" @click="chatHistory = []" v-if="chatHistory.length > 0">清空记录</button>
+        </div>
+        <div class="chat-list" ref="chatListRef">
+          <div v-if="chatHistory.length === 0" class="chat-empty">
+            <p>开启会话并对着摄像头说话，或者在下方打字开始交流</p>
+          </div>
+          <div v-for="(msg, index) in chatHistory" :key="index" :class="['chat-bubble', msg.role]">
+            <div class="bubble-sender">{{ msg.role === 'user' ? 'YOU' : msg.role === 'ai' ? 'AURA' : 'SYSTEM' }}</div>
+            <div class="bubble-content">{{ msg.text }}</div>
+          </div>
+        </div>
+        
+        <!-- 纯文本输入区域 -->
+        <div class="chat-input-area" v-if="isConversationActive">
+          <input 
+            type="text" 
+            v-model="manualInputText" 
+            @keyup.enter="sendManualMessage"
+            placeholder="在输入框中输入内容..." 
+            class="manual-input"
+          />
+          <button @click="sendManualMessage" class="btn-send">发送</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- 配置面板 -->
+    <transition name="slide-fade">
+      <div v-if="showSettings" class="settings-panel glass-panel">
+        <div class="settings-header">
+          <h3>配置大模型 API</h3>
+          <button class="btn-close-settings" @click="showSettings = false">×</button>
+        </div>
+        
+        <div class="settings-body">
+          <div class="input-group">
+            <label>快速配置预设</label>
+            <select @change="applyPreset" class="preset-select">
+              <option value="">-- 自定义 / 请选择 --</option>
+              <option value="dashscope">阿里百炼 / 通义千问 (DashScope)</option>
+              <option value="openai">OpenAI 官方 API</option>
+            </select>
+          </div>
+          
+          <div class="input-group">
+            <label>
+              Base URL 
+              <span v-if="urlError" class="error-msg">{{ urlError }}</span>
+            </label>
+            <input v-model="baseUrl" type="text" :class="{ 'input-error': urlError }" placeholder="https://api.openai.com/v1" />
+          </div>
+          
+          <div class="input-group">
+            <label>
+              API Key 
+              <span v-if="apiError" class="error-msg">{{ apiError }}</span>
+            </label>
+            <input v-model="apiKey" type="password" :class="{ 'input-error': apiError }" placeholder="sk-..." />
+          </div>
+          
+          <div class="input-group">
+            <label>
+              模型名称 / 接入点 
+              <span v-if="modelError" class="error-msg">{{ modelError }}</span>
+            </label>
+            <input v-model="modelName" type="text" :class="{ 'input-error': modelError }" placeholder="qwen-vl-max / gpt-4o-mini" />
+          </div>
+          
+          <p class="hint">请确保所使用的模型支持多模态图像/视觉识别功能</p>
+        </div>
+        
+        <div class="panel-actions">
+          <button class="btn-clear" @click="clearConfig">清空</button>
+          <button class="btn-confirm" @click="validateConfig">确定并验证</button>
         </div>
       </div>
-    </div>
+    </transition>
+
+    <!-- 悬浮设置按钮 -->
+    <button class="settings-toggle glass-panel fab" @click="showSettings = !showSettings" v-if="!showSettings">
+      ⚙️
+    </button>
 
     <!-- 底部控制栏 -->
     <div class="control-bar glass-panel">
@@ -347,196 +423,536 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 玻璃拟物化核心样式 */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
 .app-container {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   width: 100vw;
   height: 100vh;
-  padding: 20px;
+  padding: 24px;
   box-sizing: border-box;
-  background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-  color: white;
-  font-family: 'Inter', system-ui, sans-serif;
+  background: #080c10;
+  color: #f3f4f6;
+  font-family: 'Outfit', 'Space Grotesk', system-ui, sans-serif;
   overflow: hidden;
   position: relative;
 }
 
+/* 渐变氛围背景 */
+.ambient-glow {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.15;
+  z-index: 1;
+  pointer-events: none;
+}
+.bg-1 {
+  background: radial-gradient(circle, #00d2ff 0%, rgba(0,0,0,0) 70%);
+  top: -100px;
+  right: -100px;
+}
+.bg-2 {
+  background: radial-gradient(circle, #7928ca 0%, rgba(0,0,0,0) 70%);
+  bottom: -100px;
+  left: -100px;
+}
+
+/* 玻璃面板基础规范 */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  background: rgba(13, 20, 30, 0.45);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  z-index: 2;
+}
+
+/* 头部 Header */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  z-index: 2;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pulse-dot {
+  width: 10px;
+  height: 10px;
+  background: #00d2ff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #00d2ff;
+  animation: pulse-glow 2s infinite;
+}
+@keyframes pulse-glow {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.3); opacity: 1; }
+}
+.logo-text {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  background: linear-gradient(90deg, #00d2ff, #7928ca);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.logo-badge {
+  font-size: 0.7rem;
+  background: rgba(0, 210, 255, 0.1);
+  border: 1px solid rgba(0, 210, 255, 0.3);
+  color: #00d2ff;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 
 .active-model-display {
-  position: absolute;
-  top: 25px;
-  right: 25px;
   font-size: 0.85rem;
-  background: rgba(0,0,0,0.3);
-  padding: 6px 12px;
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 6px 14px;
+  border-radius: 30px;
   display: flex;
   align-items: center;
   gap: 8px;
-  z-index: 5;
 }
 .dot.green {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #24fe41;
-  box-shadow: 0 0 8px #24fe41;
+  background: #10b981;
+  box-shadow: 0 0 10px #10b981;
 }
 
-/* 状态指示器 (呼吸灯) */
-.status-orb-container {
+/* 主容器 */
+.app-main {
+  display: flex;
+  flex: 1;
+  gap: 20px;
+  height: calc(100vh - 160px);
+  z-index: 2;
+}
+
+.left-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1.2;
+  gap: 20px;
+}
+
+/* 摄像头预览区 */
+.camera-section {
+  flex: 1.8;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.camera-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 20px;
+}
+.scanlines {
   position: absolute;
-  top: 40px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 4px;
+  z-index: 3;
+  pointer-events: none;
+}
+.placeholder {
+  position: absolute;
   display: flex;
   flex-direction: column;
   align-items: center;
-  z-index: 10;
+  gap: 15px;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+}
+.placeholder-icon {
+  font-size: 2.8rem;
+  opacity: 0.6;
 }
 
+/* 状态 Orb 指示器区 */
+.status-section {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  background: rgba(13, 20, 30, 0.25);
+}
+.status-orb-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
 .status-orb {
-  width: 30px;
-  height: 30px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 20px rgba(255,255,255,0.05);
+}
+.orb-ring {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 1px solid transparent;
   transition: all 0.5s ease;
+  pointer-events: none;
 }
 
+/* 状态样式 */
 .status-orb.idle {
-  background: rgba(200, 200, 200, 0.3);
+  background: rgba(255,255,255,0.06);
 }
-
 .status-orb.listening {
   background: #00d2ff;
-  box-shadow: 0 0 20px #00d2ff;
-  animation: breathe 3s infinite ease-in-out;
+  box-shadow: 0 0 30px #00d2ff;
+  animation: orb-breathe 2.5s infinite ease-in-out;
+}
+.ring-1.listening {
+  border-color: rgba(0, 210, 255, 0.4);
+  transform: scale(1.3);
+  animation: ring-pulse 2.5s infinite ease-in-out;
+}
+.ring-2.listening {
+  border-color: rgba(0, 210, 255, 0.2);
+  transform: scale(1.6);
+  animation: ring-pulse 2.5s infinite ease-in-out 0.6s;
 }
 
 .status-orb.speaking {
-  background: #3a7bd5;
-  box-shadow: 0 0 30px #3a7bd5;
-  animation: pulse 0.5s infinite alternate;
+  background: #3b82f6;
+  box-shadow: 0 0 35px #3b82f6;
+  animation: orb-talk 0.6s infinite alternate ease-in-out;
+}
+.ring-1.speaking {
+  border-color: rgba(59, 130, 246, 0.5);
+  animation: ring-ripple 1.2s infinite linear;
 }
 
 .status-orb.thinking {
-  background: #fdfc47;
-  box-shadow: 0 0 25px #fdfc47;
-  animation: spinbreathe 2s infinite linear;
+  background: #f59e0b;
+  box-shadow: 0 0 30px #f59e0b;
+  animation: orb-think 2s infinite linear;
+}
+.ring-1.thinking {
+  border-color: rgba(245, 158, 11, 0.4);
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  transform: scale(1.2) rotate(360deg);
+  animation: spin 3s infinite linear;
 }
 
 .status-orb.expressing {
-  background: #24fe41;
-  box-shadow: 0 0 30px #24fe41;
-  animation: flash 1s infinite alternate;
+  background: #10b981;
+  box-shadow: 0 0 40px #10b981;
+  animation: orb-express 1s infinite alternate ease-in-out;
+}
+.ring-1.expressing {
+  border-color: rgba(16, 185, 129, 0.4);
+  transform: scale(1.4);
+  animation: ring-pulse 1s infinite alternate ease-in-out;
 }
 
 .status-text {
-  margin-top: 10px;
-  font-size: 0.8rem;
-  letter-spacing: 2px;
-  opacity: 0.8;
+  margin-top: 20px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 3px;
+  font-weight: 600;
+  opacity: 0.7;
 }
 
-@keyframes breathe {
+/* 动效 */
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.1); opacity: 1; }
+}
+@keyframes ring-pulse {
+  0%, 100% { transform: scale(1.2); opacity: 0.8; }
+  50% { transform: scale(1.5); opacity: 0.2; }
+}
+@keyframes ring-ripple {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes orb-talk {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.2); border-radius: 40%; }
+}
+@keyframes orb-think {
   0%, 100% { transform: scale(1); opacity: 0.8; }
-  50% { transform: scale(1.2); opacity: 1; }
+  50% { transform: scale(0.9); opacity: 1; }
 }
-@keyframes pulse {
-  0% { transform: scale(1); border-radius: 50%; }
-  100% { transform: scale(1.5); border-radius: 30%; }
+@keyframes spin {
+  0% { transform: scale(1.2) rotate(0deg); }
+  100% { transform: scale(1.2) rotate(360deg); }
 }
-@keyframes spinbreathe {
-  0% { transform: rotate(0deg) scale(1); opacity: 0.8; }
-  50% { transform: rotate(180deg) scale(1.1); opacity: 1; }
-  100% { transform: rotate(360deg) scale(1); opacity: 0.8; }
-}
-@keyframes flash {
-  0% { opacity: 0.4; }
-  100% { opacity: 1; box-shadow: 0 0 40px #24fe41; }
+@keyframes orb-express {
+  0% { transform: scale(1); filter: hue-rotate(0deg); }
+  100% { transform: scale(1.15); filter: hue-rotate(45deg); }
 }
 
-/* 设置面板 */
-.settings-toggle {
+/* 右侧对话流 */
+.right-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 320px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.chat-header {
+  padding: 16px 20px;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.btn-clear-chat {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.btn-clear-chat:hover {
+  border-color: #ff4d4f;
+  color: #ff4d4f;
+}
+
+.chat-list {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.chat-list::-webkit-scrollbar { width: 5px; }
+.chat-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  color: rgba(255,255,255,0.25);
+  font-size: 0.85rem;
+  padding: 20px;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  animation: slideIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.bubble-sender {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  opacity: 0.5;
+}
+.chat-bubble.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, rgba(0, 210, 255, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%);
+  border: 1px solid rgba(0, 210, 255, 0.15);
+  border-bottom-right-radius: 4px;
+}
+.chat-bubble.ai {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom-left-radius: 4px;
+}
+
+/* 输入框 */
+.chat-input-area {
+  padding: 15px;
+  display: flex;
+  gap: 10px;
+  background: rgba(0,0,0,0.15);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  border-radius: 0 0 20px 20px;
+}
+.manual-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 24px;
+  outline: none;
+  font-size: 0.85rem;
+  transition: all 0.3s;
+}
+.manual-input:focus {
+  border-color: #00d2ff;
+  box-shadow: 0 0 10px rgba(0, 210, 255, 0.15);
+}
+.btn-send {
+  padding: 8px 20px;
+  border-radius: 24px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.btn-send:hover {
+  background: #00d2ff;
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.3);
+}
+
+/* 浮动配置按钮 & 面板 */
+.settings-toggle.fab {
   position: absolute;
   top: 20px;
-  left: 20px;
-  z-index: 20;
-  padding: 8px 16px;
-  font-size: 0.9rem;
+  right: 20px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.settings-toggle.fab:hover {
+  transform: rotate(45deg);
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.25);
 }
 
 .settings-panel {
   position: absolute;
-  top: 70px;
-  left: 20px;
-  z-index: 20;
-  padding: 20px;
-  width: 340px;
+  top: 80px;
+  right: 20px;
+  width: 350px;
+  z-index: 30;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 18px;
 }
-
-.settings-panel h3 {
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 12px;
+}
+.settings-header h3 {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 500;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  padding-bottom: 10px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.btn-close-settings {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.5);
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.btn-close-settings:hover {
+  color: white;
 }
 
-.input-group {
+.settings-body {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 14px;
 }
-
 .input-group label {
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 6px;
   display: flex;
   justify-content: space-between;
 }
-
 .error-msg {
-  color: #ff4d4f;
+  color: #ef4444;
   font-weight: 600;
   font-size: 0.75rem;
 }
-
-.input-group input {
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+.input-group input, .preset-select {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: white;
   padding: 8px 12px;
   border-radius: 8px;
   outline: none;
+  font-size: 0.8rem;
   transition: all 0.3s;
+  width: 100%;
+  box-sizing: border-box;
 }
-
-.input-group input:focus {
+.preset-select {
+  cursor: pointer;
+}
+.preset-select option {
+  background: #0d141e;
+  color: white;
+}
+.input-group input:focus, .preset-select:focus {
   border-color: #00d2ff;
 }
-
 .input-group input.input-error {
-  border-color: #ff4d4f;
-  background: rgba(255, 77, 79, 0.1);
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
 }
-
 .hint {
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.4);
   margin: 0;
+  line-height: 1.4;
 }
 
 .panel-actions {
@@ -545,141 +961,85 @@ onUnmounted(() => {
   gap: 10px;
   margin-top: 10px;
 }
-
 .btn-clear {
-  padding: 6px 12px;
-  font-size: 0.85rem;
+  padding: 6px 14px;
+  font-size: 0.8rem;
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  transition: all 0.3s;
 }
-
-.btn-confirm {
-  padding: 6px 16px;
-  font-size: 0.85rem;
-  background: #00d2ff;
-  color: #0f2027;
-  border: none;
-  font-weight: 600;
-}
-.btn-confirm:hover {
-  background: #3a7bd5;
+.btn-clear:hover {
+  background: rgba(255,255,255,0.05);
   color: white;
 }
-
-/* 布局区域 */
-.camera-section {
-  flex: 2;
-  margin-right: 20px;
-  margin-bottom: 80px;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.camera-preview {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.placeholder {
-  position: absolute;
-  color: rgba(255,255,255,0.5);
-}
-
-.chat-section {
-  flex: 1;
-  margin-bottom: 80px;
-  display: flex;
-  flex-direction: column;
-  min-width: 300px;
-}
-.chat-header {
-  padding: 20px;
-  font-weight: 600;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  text-align: center;
-}
-.chat-list {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-.chat-list::-webkit-scrollbar { width: 6px; }
-.chat-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
-
-.chat-bubble {
-  max-width: 80%;
-  padding: 12px 16px;
-  border-radius: 18px;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  animation: slideIn 0.3s ease-out;
-}
-@keyframes slideIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.chat-bubble.user {
-  align-self: flex-end;
-  background: rgba(0, 132, 255, 0.6);
-  border-bottom-right-radius: 4px;
-}
-.chat-bubble.ai {
-  align-self: flex-start;
-  background: rgba(255, 255, 255, 0.15);
-  border-bottom-left-radius: 4px;
-}
-.chat-bubble.system {
-  align-self: center;
-  background: transparent;
+.btn-confirm {
+  padding: 6px 18px;
   font-size: 0.8rem;
-  color: rgba(255,255,255,0.5);
-  text-align: center;
+  background: linear-gradient(135deg, #00d2ff 0%, #3b82f6 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.btn-confirm:hover {
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.3);
 }
 
 /* 控制栏 */
 .control-bar {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
-  gap: 20px;
-  padding: 15px 40px;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 30px;
+  margin-top: 20px;
+  z-index: 2;
+  align-self: center;
+  border: 1px solid rgba(255,255,255,0.04);
 }
-button {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+.control-bar button {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: white;
-  padding: 12px 24px;
+  padding: 10px 32px;
   border-radius: 30px;
-  font-size: 1rem;
-  font-weight: 500;
+  font-size: 0.95rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 1px;
 }
-button:hover { background: rgba(255, 255, 255, 0.2); }
-
 .btn-start {
-  background: rgba(36, 254, 65, 0.2);
-  border-color: #24fe41;
-  color: #24fe41;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%) !important;
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  color: #10b981 !important;
 }
 .btn-start:hover {
-  background: rgba(36, 254, 65, 0.4);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.35) 0%, rgba(5, 150, 105, 0.35) 100%) !important;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+  transform: translateY(-1px);
 }
-
 .btn-stop {
-  background: rgba(255, 77, 79, 0.2);
-  border-color: #ff4d4f;
-  color: #ff4d4f;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: #ef4444 !important;
 }
 .btn-stop:hover {
-  background: rgba(255, 77, 79, 0.4);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.35) 0%, rgba(220, 38, 38, 0.35) 100%) !important;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+  transform: translateY(-1px);
+}
+
+/* 动效过渡 */
+.slide-fade-enter-active, .slide-fade-leave-active {
+  transition: all 0.3s ease-out;
+}
+.slide-fade-enter-from, .slide-fade-leave-to {
+  transform: translateY(-20px);
+  opacity: 0;
 }
 </style>

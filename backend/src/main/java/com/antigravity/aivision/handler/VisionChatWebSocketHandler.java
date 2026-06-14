@@ -83,7 +83,8 @@ public class VisionChatWebSocketHandler extends TextWebSocketHandler {
             } catch (Exception e) {
                 e.printStackTrace();
                 try {
-                    sendMessage(session, ServerMessage.builder().status("error").text("服务器开小差了").build());
+                    sendMessage(session, ServerMessage.builder().status("error")
+                            .text("服务器开小差了: " + e.getMessage()).build());
                 } catch (IOException ex) {
                     ex.printStackTrace();
                 }
